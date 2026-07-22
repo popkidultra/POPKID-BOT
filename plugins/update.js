@@ -1,147 +1,244 @@
-const { execSync } = require('child_process');
+const { exec, spawn } = require('child_process');
+const fs = require('fs');
 const path = require('path');
+const https = require('https');
+const http = require('http');
 
-/**
- * Execute a command synchronously in the bot's folder.
- * Returns { success: true, output: string } or { success: false, error: string }
- */
 function run(cmd) {
+    return new Promise((resolve, reject) => {
+        exec(cmd, { cwd: process.cwd(), windowsHide: true }, (err, stdout, stderr) => {
+            if (err) return reject(new Error((stderr || stdout || err.message || '').toString()));
+            resolve((stdout || '').toString());
+        });
+    });
+}
+
+async function hasGitRepo() {
+    const gitDir = path.join(process.cwd(), '.git');
+    if (!fs.existsSync(gitDir)) return false;
+    try { await run('git --version'); return true; } catch { return false; }
+}
+
+async function updateViaGit() {
+    const oldRev = String(await run('git rev-parse HEAD').catch(() => 'unknown')).trim();
+    await run('git fetch --all --prune');
+
+    let branch = 'main';
     try {
-        const output = execSync(cmd, {
-            cwd: process.cwd(),
-            encoding: 'utf-8',
-            stdio: 'pipe'
-        }).trim();
-        return { success: true, output };
-    } catch (err) {
-        return {
-            success: false,
-            error: err.stderr?.toString() || err.message || String(err)
-        };
+        const head = String(await run('git symbolic-ref refs/remotes/origin/HEAD')).trim();
+        branch = head.split('/').pop();
+    } catch {
+        try { await run('git rev-parse --verify origin/main'); branch = 'main'; }
+        catch { try { await run('git rev-parse --verify origin/master'); branch = 'master'; } catch {} }
     }
+
+    const newRev = String(await run(`git rev-parse origin/${branch}`)).trim();
+    const alreadyUpToDate = oldRev === newRev;
+
+    const commits = alreadyUpToDate ? '' : await run(`git log --pretty=format:"%h %s (%an)" ${oldRev}..${newRev}`).catch(() => '');
+    const files = alreadyUpToDate ? '' : await run(`git diff --name-status ${oldRev} ${newRev}`).catch(() => '');
+
+    if (!alreadyUpToDate) {
+        await run(`git reset --hard ${newRev}`);
+        await run('git clean -fd -e session -e .env -e node_modules');
+    }
+
+    return { oldRev, newRev, alreadyUpToDate, commits, files };
+}
+
+function downloadFile(url, dest, visited = new Set()) {
+    return new Promise((resolve, reject) => {
+        try {
+            if (visited.has(url) || visited.size > 5) {
+                return reject(new Error('Too many redirects'));
+            }
+            visited.add(url);
+            const client = url.startsWith('https://') ? https : http;
+            const req = client.get(url, {
+                headers: { 'User-Agent': 'PopkidBot-Updater/1.0', 'Accept': '*/*' }
+            }, (res) => {
+                if ([301, 302, 303, 307, 308].includes(res.statusCode)) {
+                    const location = res.headers.location;
+                    if (!location) return reject(new Error(`HTTP ${res.statusCode} without Location`));
+                    const nextUrl = new URL(location, url).toString();
+                    res.resume();
+                    return downloadFile(nextUrl, dest, visited).then(resolve).catch(reject);
+                }
+                if (res.statusCode !== 200) {
+                    return reject(new Error(`HTTP ${res.statusCode}`));
+                }
+                const file = fs.createWriteStream(dest);
+                res.pipe(file);
+                file.on('finish', () => file.close(resolve));
+                file.on('error', (err) => {
+                    try { file.close(() => {}); } catch {}
+                    fs.unlink(dest, () => reject(err));
+                });
+            });
+            req.on('error', (err) => fs.unlink(dest, () => reject(err)));
+        } catch (e) {
+            reject(e);
+        }
+    });
+}
+
+async function extractZip(zipPath, outDir) {
+    if (process.platform === 'win32') {
+        const cmd = `powershell -NoProfile -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${outDir.replace(/\\/g, '/')}' -Force"`;
+        await run(cmd);
+        return;
+    }
+    try { await run('command -v unzip'); await run(`unzip -o '${zipPath}' -d '${outDir}'`); return; } catch {}
+    try { await run('command -v 7z'); await run(`7z x -y '${zipPath}' -o'${outDir}'`); return; } catch {}
+    try { await run('busybox unzip -h'); await run(`busybox unzip -o '${zipPath}' -d '${outDir}'`); return; } catch {}
+    throw new Error("No system unzip tool found (unzip/7z/busybox). Git mode is recommended on this host.");
+}
+
+function copyRecursive(src, dest, ignore = [], relative = '', outList = []) {
+    if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
+    for (const entry of fs.readdirSync(src)) {
+        if (ignore.includes(entry)) continue;
+        const s = path.join(src, entry);
+        const d = path.join(dest, entry);
+        const stat = fs.lstatSync(s);
+        if (stat.isDirectory()) {
+            copyRecursive(s, d, ignore, path.join(relative, entry), outList);
+        } else {
+            fs.copyFileSync(s, d);
+            outList.push(path.join(relative, entry).replace(/\\/g, '/'));
+        }
+    }
+}
+
+async function updateViaZip(zipOverride) {
+    const zipUrl = (zipOverride || global.updateZipUrl || process.env.UPDATE_ZIP_URL || '').trim();
+    if (!zipUrl) {
+        throw new Error('No ZIP URL configured. Set global.updateZipUrl in config.js or the UPDATE_ZIP_URL env var.');
+    }
+
+    const tmpDir = path.join(process.cwd(), 'temp');
+    if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+    const zipPath = path.join(tmpDir, 'update.zip');
+
+    await downloadFile(zipUrl, zipPath);
+
+    const extractTo = path.join(tmpDir, 'update_extract');
+    if (fs.existsSync(extractTo)) fs.rmSync(extractTo, { recursive: true, force: true });
+    await extractZip(zipPath, extractTo);
+
+    const [root] = fs.readdirSync(extractTo).map(n => path.join(extractTo, n));
+    const srcRoot = root && fs.existsSync(root) && fs.lstatSync(root).isDirectory() ? root : extractTo;
+
+    const ignore = ['node_modules', '.git', 'session', 'temp', '.env'];
+
+    // Preserve this deployment's own owner/dev/name settings — the fetched
+    // config.js is whatever's committed in the repo, which may not match
+    // what this instance is actually running with.
+    let preserved = {};
+    try {
+        delete require.cache[require.resolve(path.join(process.cwd(), 'config.js'))];
+        const before = fs.readFileSync(path.join(process.cwd(), 'config.js'), 'utf8');
+        const grab = (re) => (before.match(re) || [])[0] || null;
+        preserved.owners = grab(/global\.owners\s*=\s*\[[^\]]*\];?/);
+        preserved.dev = grab(/global\.dev\s*=\s*\[[^\]]*\];?/);
+        preserved.ownerName = grab(/global\.ownerName\s*=\s*'[^']*';?/);
+    } catch {}
+
+    const copied = [];
+    copyRecursive(srcRoot, process.cwd(), ignore, '', copied);
+
+    if (preserved.owners || preserved.dev || preserved.ownerName) {
+        try {
+            const settingsPath = path.join(process.cwd(), 'config.js');
+            let text = fs.readFileSync(settingsPath, 'utf8');
+            if (preserved.owners) text = text.replace(/global\.owners\s*=\s*\[[^\]]*\];?/, preserved.owners);
+            if (preserved.dev) text = text.replace(/global\.dev\s*=\s*\[[^\]]*\];?/, preserved.dev);
+            if (preserved.ownerName) text = text.replace(/global\.ownerName\s*=\s*'[^']*';?/, preserved.ownerName);
+            fs.writeFileSync(settingsPath, text);
+        } catch {}
+    }
+
+    try { fs.rmSync(extractTo, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(zipPath, { force: true }); } catch {}
+
+    return { copiedFiles: copied };
+}
+
+async function restartProcess() {
+    if (fs.existsSync('/.dockerenv')) {
+        setTimeout(() => process.exit(1), 500);
+        return;
+    }
+    try { await run('pm2 restart all'); return; } catch {}
+    try {
+        const child = spawn(process.execPath, process.argv.slice(1), {
+            detached: true, stdio: 'ignore', cwd: process.cwd(), env: process.env
+        });
+        child.unref();
+        setTimeout(() => process.exit(0), 1500);
+        return;
+    } catch {}
+    setTimeout(() => process.exit(0), 500);
 }
 
 module.exports = {
     name: 'update',
     category: 'Admin',
     aliases: ['upgrade'],
-    description: "Pull the latest changes from the bot's GitHub repo and restart",
+    description: 'Update the bot from git or a zip source, then restart',
 
-    async execute(sock, m) {
-        // 1. Authorisation
-        if (!global.owners.includes(m.sender)) {
-            return m.reply('❌ You are not authorised to use this command.');
-        }
+    async execute(sock, m, args) {
+        if (!global.owners.includes(m.sender)) return;
 
-        await m.reply('⏳ Checking for updates...');
+        try {
+            await m.reply('🔄 Updating the bot, please wait…');
 
-        // 2. Verify we are inside a git repository
-        const inside = run('git rev-parse --is-inside-work-tree');
-        if (!inside.success) {
-            return m.reply(
-                '❌ This bot folder isn\'t a git repository yet.\n\n' +
-                'One-time setup on your server:\n' +
-                '```\ngit init\ngit remote add origin https://github.com/popkidultra/POPKID-BOT.git\ngit fetch origin\ngit checkout -f main\n```'
-            );
-        }
+            let changesSummary = '';
 
-        // 3. Fetch latest from remote
-        const fetch = run('git fetch origin');
-        if (!fetch.success) {
-            return m.reply(`❌ Failed to fetch updates:\n\`\`\`\n${fetch.error.slice(0, 400)}\n\`\`\``);
-        }
+            if (await hasGitRepo()) {
+                const { oldRev, newRev, alreadyUpToDate, commits, files } = await updateViaGit();
 
-        // 4. Detect default branch (usually main or master)
-        let branch = 'main';
-        const head = run('git symbolic-ref refs/remotes/origin/HEAD');
-        if (head.success) {
-            branch = head.output.split('/').pop();
-        } else {
-            // fallback checks
-            for (const b of ['main', 'master']) {
-                const check = run(`git rev-parse --verify origin/${b}`);
-                if (check.success) {
-                    branch = b;
-                    break;
+                if (alreadyUpToDate) {
+                    changesSummary = `✅ Already up to date\nCurrent: ${newRev.substring(0, 7)}`;
+                } else {
+                    changesSummary = `✅ Updated successfully!\n\n📌 Old: ${oldRev.substring(0, 7)}\n📌 New: ${newRev.substring(0, 7)}\n\n`;
+                    if (commits) {
+                        const lines = String(commits).split('\n').filter(Boolean).slice(0, 5);
+                        changesSummary += `📝 Recent commits:\n${lines.map(c => `• ${c}`).join('\n')}\n\n`;
+                    }
+                    if (files) {
+                        const allLines = String(files).split('\n').filter(Boolean);
+                        const shown = allLines.slice(0, 10);
+                        changesSummary += `📁 Changed files:\n${shown.map(f => `• ${f}`).join('\n')}`;
+                        if (allLines.length > 10) changesSummary += `\n... and ${allLines.length - 10} more`;
+                    }
+                    await run('npm install --no-audit --no-fund').catch(() => {});
                 }
-            }
-        }
-
-        // 5. Check how many commits we are behind
-        const behind = run(`git rev-list HEAD..origin/${branch} --count`);
-        if (!behind.success) {
-            return m.reply('❌ Could not compare local and remote versions.');
-        }
-        if (behind.output === '0') {
-            return m.reply('✅ Already up to date. Nothing new to pull.');
-        }
-
-        // 6. Check for local uncommitted changes
-        const status = run('git status --porcelain');
-        if (status.success && status.output !== '') {
-            return m.reply(
-                '⚠️ You have uncommitted changes. Please commit or stash them first, then try .update again.\n\n' +
-                'Quick fix:\n```\ngit add . && git commit -m "backup"\n```\n' +
-                'Or to discard all local changes:\n```\ngit reset --hard origin/' + branch + '\n```'
-            );
-        }
-
-        // 7. Get changelog before pulling
-        const changelog = run(`git log HEAD..origin/${branch} --pretty=format:"• %s"`);
-        const logText = changelog.success ? changelog.output : 'No commit messages available.';
-
-        // 8. Detect if package.json will change
-        const changedFiles = run(`git diff HEAD..origin/${branch} --name-only`);
-        const needsInstall = changedFiles.success && changedFiles.output.split('\n').includes('package.json');
-
-        // 9. Perform the pull (fast-forward when possible)
-        const pull = run(`git pull origin ${branch} --no-edit`);
-        if (!pull.success) {
-            return m.reply(
-                `❌ Update failed while pulling:\n\`\`\`\n${pull.error.slice(0, 500)}\n\`\`\`\n` +
-                'Try running the following on your server:\n' +
-                '```\ngit stash\ngit pull origin ' + branch + '\ngit stash pop\n```'
-            );
-        }
-
-        // 10. Reinstall dependencies if needed
-        let installNote = '';
-        if (needsInstall) {
-            await m.reply('📦 package.json changed — installing dependencies...');
-            const npm = run('npm install --omit=dev');  // skip devDependencies for faster install
-            if (!npm.success) {
-                installNote = '\n⚠️ Dependency install failed – run `npm install` manually.';
             } else {
-                installNote = '\n📦 Dependencies reinstalled.';
+                const zipOverride = args[0] || null;
+                const { copiedFiles } = await updateViaZip(zipOverride);
+
+                changesSummary = `✅ Updated from ZIP!\n\n📁 Files updated: ${copiedFiles.length}\n\n`;
+                if (copiedFiles.length > 0) {
+                    const shown = copiedFiles.slice(0, 10);
+                    changesSummary += `Recent changes:\n${shown.map(f => `• ${f}`).join('\n')}`;
+                    if (copiedFiles.length > 10) changesSummary += `\n... and ${copiedFiles.length - 10} more files`;
+                }
+                await run('npm install --no-audit --no-fund').catch(() => {});
             }
+
+            try {
+                const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'));
+                changesSummary += `\n\n🔖 Version: ${pkg.version || 'unknown'}`;
+            } catch {}
+
+            await m.reply(`${changesSummary}\n\n♻️ Restarting bot...`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            await restartProcess();
+
+        } catch (err) {
+            console.error('Update failed:', err);
+            await m.reply(`❌ Update failed:\n${String(err.message || err)}`);
         }
-
-        await m.reply(
-            `✅ *UPDATE COMPLETE*\n` +
-            `━━━━━━━━━━━━━━━━\n` +
-            `${logText}\n` +
-            `━━━━━━━━━━━━━━━━${installNote}\n` +
-            `🔄 Restarting now…\n\n` +
-            `© popkid`
-        );
-
-        // 11. Restart the bot
-        // Use this if you have a process manager (PM2, systemd, etc.) that will restart automatically:
-        setTimeout(() => process.exit(0), 1500);
-
-        // If you run the bot directly with `node index.js` and need a self‑spawn restart,
-        // uncomment the following lines instead of the above:
-        // setTimeout(() => {
-        //     try {
-        //         const { spawn } = require('child_process');
-        //         const child = spawn(process.argv[0], [path.join(process.cwd(), 'index.js')], {
-        //             detached: true,
-        //             stdio: 'ignore',
-        //             cwd: process.cwd()
-        //         });
-        //         child.unref();
-        //     } catch {}
-        //     process.exit(0);
-        // }, 1500);
     }
 };
