@@ -254,13 +254,30 @@ function startBot() {
     
     for (const rawMsg of messages) {
         if (rawMsg.key.remoteJid === 'status@broadcast' && rawMsg.key.participant) {
-            try {
-                console.log(`📱 Status detected from: ${rawMsg.key.participant}`);
-                await sock.readMessages([rawMsg.key]);
-                continue;
-            } catch (err) {
-                console.log('❌ Status viewer error:', err.message);
+            if (global.autoView) {
+                try {
+                    console.log(`📱 Status detected from: ${rawMsg.key.participant}`);
+                    await sock.readMessages([rawMsg.key]);
+                } catch (err) {
+                    console.log('❌ Status viewer error:', err.message);
+                }
             }
+
+            if (global.autoLike) {
+                try {
+                    const emojis = ["❤️", "🩶", "🔥", "🤍", "♦️", "🎉", "💚", "💯", "✨", "😍", "🎊"];
+                    const emoji = emojis[Math.floor(Math.random() * emojis.length)];
+                    const botId = sock.user?.id ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : sock.user?.id;
+                    await sock.sendMessage('status@broadcast',
+                        { react: { text: emoji, key: rawMsg.key } },
+                        { statusJidList: [rawMsg.key.participant, botId].filter(Boolean) }
+                    );
+                } catch (err) {
+                    console.log('❌ Status like error:', err.message);
+                }
+            }
+
+            continue;
         }
     }
 
@@ -268,6 +285,18 @@ function startBot() {
     if (!rawMsg.message) return;
 
     const m = await serializeMessage(sock, rawMsg);
+
+    if (global.autoRead) {
+        try { await sock.readMessages([rawMsg.key]); } catch (err) {}
+    }
+
+    if (global.presenceMode && global.presenceMode !== 'none' && m.from) {
+        try {
+            if (global.presenceMode === 'typing') await sock.sendPresenceUpdate('composing', m.from);
+            else if (global.presenceMode === 'recording') await sock.sendPresenceUpdate('recording', m.from);
+            else if (global.presenceMode === 'online') await sock.sendPresenceUpdate('available', m.from);
+        } catch (err) {}
+    }
 
     for (const plugin of plugins.values()) {
         if (typeof plugin.onMessage === 'function') {
