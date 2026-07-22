@@ -1,5 +1,5 @@
 require('./config')
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage, generateWAMessageContent, generateWAMessageFromContent, generateMessageID, prepareWAMessageMedia, fetchLatestWaWebVersion, proto,generateProfilePicture } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage, generateWAMessageContent, generateWAMessageFromContent, generateMessageID, prepareWAMessageMedia, fetchLatestWaWebVersion, proto, generateProfilePicture } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
@@ -176,10 +176,44 @@ function startBot() {
                     }, 10000);
 
                     try {
-                        await sock.sendMessage(sock.user.id, {
-                            text: `🤖 Bot linked successfully!\n📝 Current prefix: ${global.BOT_PREFIX}\n👑 Owners: ${global.owners.length}\n⏰ Connected at: ${new Date().toLocaleString()}`
-                        });
-                    } catch (err) {}
+                        console.log('Plugins installed successful ✅')
+                        console.log('Bot connected to whatsapp ✅')
+                        const startMess = {
+                            image: { url: 'https://url.bmbxmd.workers.dev/novaxmd.png' },
+                            caption: `
+───────────────────────────
+───────────────────────────
+╔═〘 𝗡𝗢𝗩𝗔 ✦ 𝗫𝗠𝗗 𝗕𝗢𝗧 〙═╗
+║ 💬 Prefix      : ${config.PREFIX}
+║
+║ 🧠 Repos  : github.com/novaxmd
+║
+║ ⚡ Status      : Connected
+║
+║ 👑 Website      : bmbtech.online
+║
+║ ⭐ Support     : Fork ⭐ & Star 🔥
+║
+╚═〘 Powered by ${config.OWNER_NAME} 💻 〙═╝
+────────────────────────────
+────────────────────────────
+
+> *© ᴘᴏᴡᴇʀᴇᴅ ʙʏ 𝙽𝙾𝚅𝙰 ᴛᴇᴄʜ*`,
+                            contextInfo: {
+                                forwardingScore: 5,
+                                isForwarded: true,
+                                forwardedNewsletterMessageInfo: {
+                                    newsletterJid: '120363382023564830@newsletter', 
+                                    newsletterName: "NOVA-XMD",
+                                    serverMessageId: 143
+                                }
+                            }
+                        }
+
+                        await sock.sendMessage(sock.user.id, startMess)
+                    } catch (e) {
+                        console.error('Error during initialization:', e)
+                    }
                 } 
                 
                 else if (connection === 'connecting') {
