@@ -1,107 +1,86 @@
+const axios = require('axios');
 const yts = require('yt-search');
+
+const DL_API = 'https://api.qasimdev.dpdns.org/api/loaderto/download';
+const API_KEY = 'qasim-dev';
+
+const wait = (ms) => new Promise(r => setTimeout(r, ms));
+
+async function downloadWithRetry(url, retries = 3) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            const { data } = await axios.get(DL_API, {
+                params: { apiKey: API_KEY, format: '360', url },
+                timeout: 120000
+            });
+            if (data?.data?.downloadUrl) return data.data;
+            throw new Error('No download URL');
+        } catch (err) {
+            if (i === retries - 1) throw err;
+            console.log(`Download attempt ${i + 1} failed, retrying in 5s...`);
+            await wait(5000);
+        }
+    }
+    throw new Error('All download attempts failed');
+}
 
 module.exports = {
     name: 'video',
     category: 'Downloaders',
-    aliases: ['vid2', 'ytmp4'],
-    description: 'Search and download a YouTube video as MP4',
-    command: /^\.?(video2|vid2|ytmp4)\b/i,
+    aliases: ['ytmp4', 'ytvideo'],
+    description: 'Download YouTube videos by link or search',
+    command: /^\.?(video|ytmp4|ytvideo)\b/i,
 
     async execute(sock, m, args) {
-        const text = args.join(' ').trim();
+        const query = args.join(' ').trim();
 
-        await m.react('⌛');
-
-        if (!text) {
-            await m.react('❌').catch(() => {});
-            return m.reply("🎬 *VIDEO*\n━━━━━━━━━━━━━━━━\nGive me a video name, it's not rocket science.\n━━━━━━━━━━━━━━━━\n© popkid");
-        }
-        if (text.length > 100) {
-            await m.react('❌').catch(() => {});
-            return m.reply("🎬 *VIDEO*\n━━━━━━━━━━━━━━━━\nTitle longer than your attention span. Under 100 chars!\n━━━━━━━━━━━━━━━━\n© popkid");
+        if (!query) {
+            return m.reply('🎥 *What video do you want to download?*\nExample:\n.video Alan Walker Faded');
         }
 
         try {
-            console.log('[VIDEO2] Searching for:', text);
-            const searchQuery = `${text} official`;
-            const searchResult = await yts(searchQuery);
-            const video = searchResult.videos[0];
+            let videoUrl, videoTitle, videoThumbnail;
 
-            if (!video) {
-                await m.react('❌').catch(() => {});
-                return m.reply(`🎬 *VIDEO*\n━━━━━━━━━━━━━━━━\nNothing found for "${text}". Your taste doesn't exist.\n━━━━━━━━━━━━━━━━\n© popkid`);
+            if (query.startsWith('http://') || query.startsWith('https://')) {
+                videoUrl = query;
+            } else {
+                const { videos } = await yts(query);
+                if (!videos?.length) {
+                    return m.reply('❌ No videos found!');
+                }
+                videoUrl = videos[0].url;
+                videoTitle = videos[0].title;
+                videoThumbnail = videos[0].thumbnail;
             }
 
-            console.log('[VIDEO2] Found:', video.url);
+            const validYT = videoUrl.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|shorts\/|embed\/))([a-zA-Z0-9_-]{11})/);
+            if (!validYT) {
+                return m.reply('❌ Not a valid YouTube link!');
+            }
 
-            const encodedUrl = encodeURIComponent(video.url);
-            const apiUrl = `https://api.deline.web.id/downloader/youtube?url=${encodedUrl}`;
-            console.log('[VIDEO2] Calling API:', apiUrl);
+            const ytId = validYT[1];
+            const thumb = videoThumbnail || `https://i.ytimg.com/vi/${ytId}/sddefault.jpg`;
 
-            const response = await fetch(apiUrl, {
-                headers: {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                    "Accept": "application/json"
-                }
+            await m.reply({
+                image: { url: thumb },
+                caption: `🎬 *${videoTitle || query}*\n⬇️ Downloading... *(may take up to 30s)*`
             });
 
-            console.log('[VIDEO2] Response status:', response.status);
+            const videoData = await downloadWithRetry(videoUrl);
 
-            const data = await response.json();
-            console.log('[VIDEO2] Full response:', JSON.stringify(data, null, 2));
-
-            if (!data.status || !data.result) {
-                throw new Error('API returned no valid data. status=' + data.status);
-            }
-
-            const result = data.result;
-            const title = result.title || "Untitled";
-            const thumbnailUrl = result.thumbnail;
-
-            if (!result.medias || !result.medias.length) {
-                throw new Error('No medias array in response.');
-            }
-
-            console.log('[VIDEO2] Medias count:', result.medias.length);
-            console.log('[VIDEO2] Medias:', JSON.stringify(result.medias, null, 2));
-
-            const chosen =
-                result.medias.find(mformat => mformat.type === 'video' && mformat.label?.includes('720')) ||
-                result.medias.find(mformat => mformat.type === 'video') ||
-                result.medias[0];
-
-            console.log('[VIDEO2] Chosen media:', JSON.stringify(chosen, null, 2));
-
-            // Check every possible field name the API might use for the actual link
-            const videoUrl = chosen.url || chosen.downloadUrl || chosen.link || chosen.download;
-
-            if (!videoUrl) {
-                throw new Error('Chosen media has no usable url field. Keys: ' + Object.keys(chosen).join(', '));
-            }
-
-            console.log('[VIDEO2] Final video URL:', videoUrl);
-
-            await m.react('✅');
-            await sock.sendMessage(m.from, {
-                video: { url: videoUrl },
-                mimetype: "video/mp4",
-                fileName: `${title}.mp4`,
-                contextInfo: {
-                    externalAdReply: {
-                        title: title,
-                        body: "Powered by popkid",
-                        thumbnailUrl,
-                        sourceUrl: video.url,
-                        mediaType: 2,
-                        renderLargerThumbnail: true
-                    }
-                }
+            await m.reply({
+                video: { url: videoData.downloadUrl },
+                mimetype: 'video/mp4',
+                fileName: `${videoData.title || videoTitle || 'video'}.mp4`,
+                caption: `🎬 *${videoData.title || videoTitle || 'Video'}*\n\n> *_Downloaded by popkid_*`
             });
 
-        } catch (error) {
-            console.error(`[VIDEO2 ERROR]`, error);
-            await m.react('❌').catch(() => {});
-            await m.reply(`❌ *VIDEO ERROR*\n━━━━━━━━━━━━━━━━\n${error.message}\n━━━━━━━━━━━━━━━━\n© popkid`);
+        } catch (err) {
+            console.error('[VIDEO] Error:', err.message);
+            const reason = err.response?.status === 408
+                ? 'Download timed out. Try again.'
+                : err.message;
+            await m.reply(`❌ Download failed!\nReason: ${reason}`);
         }
     }
 };
