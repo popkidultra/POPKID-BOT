@@ -175,11 +175,19 @@ function startBot() {
                         }
                     }, 10000);
 
+                    // ───── THE ONLY CHANGE: stylish image + caption ─────
                     try {
+                        const imageUrl = 'https://i.ibb.co/WNv1hWXT/file-000000001f5c81f4a38f20223ae695d1.png';
+                        const caption = `✨ *POPKID MD IS NOW CONNECTED!* ✨\n\n` +
+                                        `✅ Bot successfully linked\n` +
+                                        `🟢 Online and ready to serve\n` +
+                                        `🎉 Good work!`;
                         await sock.sendMessage(sock.user.id, {
-                            text: `🤖 Bot linked successfully!\n📝 Current prefix: ${global.BOT_PREFIX}\n👑 Owners: ${global.owners.length}\n⏰ Connected at: ${new Date().toLocaleString()}`
+                            image: { url: imageUrl },
+                            caption: caption
                         });
                     } catch (err) {}
+                    // ─────────────────────────────────────────────────────
                 } 
                 
                 else if (connection === 'connecting') {
