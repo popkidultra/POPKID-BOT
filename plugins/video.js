@@ -2,7 +2,7 @@ module.exports = {
     name: 'video',
     category: 'Downloaders',
     aliases: ['vid', 'ytvideo'],
-    description: 'Search YouTube and send the video directly',
+    description: 'Search YouTube and send the video',
     command: /^\.?(video|vid|ytvideo)/i,
 
     async execute(sock, m, args) {
@@ -13,7 +13,7 @@ module.exports = {
                 return m.reply('Usage: .video <search query>\nExample: .video faded alan walker');
             }
 
-            // 1. Search for the video
+            // 1. Search for the video using the exact API provided
             const searchUrl = `https://api.deline.web.id/search/youtube?q=${encodeURIComponent(query)}&apikey=agasamel`;
             const searchRes = await fetch(searchUrl);
 
@@ -22,42 +22,33 @@ module.exports = {
             }
 
             const searchData = await searchRes.json();
-            if (searchData.status === false) {
-                return m.reply(`❌ Search failed: ${searchData.message || searchData.error || 'Unknown error'}`);
-            }
-
-            const rawList = searchData.result ?? searchData.results ?? searchData.data ?? searchData;
-            const list = Array.isArray(rawList) ? rawList : rawList ? [rawList] : [];
-
-            if (!list.length) {
+            if (!searchData.status || !Array.isArray(searchData.result) || searchData.result.length === 0) {
                 return m.reply(`No results found for "${query}".`);
             }
 
-            const video = list[0];
-            const title = video.title || video.name || 'Unknown title';
-            const videoUrl = video.url || video.link || video.videoUrl ||
-                (video.videoId ? `https://youtu.be/${video.videoId}` : '') ||
-                (video.id ? `https://youtu.be/${video.id}` : '');
+            const video = searchData.result[0];
+            const title = video.title || 'Unknown title';
+            const youtubeLink = video.link;
 
-            if (!videoUrl) {
-                return m.reply('❌ Could not extract video link from search results.');
+            if (!youtubeLink) {
+                return m.reply('❌ Could not extract video link from search result.');
             }
 
-            // Let the user know we're processing
+            // 2. Let the user know we're downloading
             await m.reply(`⏳ Downloading *${title}*...`);
 
-            // 2. Download the video using a downloader API
-            //    Using the same api.deline.web.id infrastructure (assumed endpoint).
-            const downloadUrl = `https://api.deline.web.id/downloader/ytmp4?url=${encodeURIComponent(videoUrl)}&apikey=agasamel`;
+            // 3. Use a YouTube downloader API to get a direct MP4 link
+            //    This endpoint should return a direct video URL.
+            const downloadUrl = `https://api.deline.web.id/downloader/ytmp4?url=${encodeURIComponent(youtubeLink)}&apikey=agasamel`;
             const dlRes = await fetch(downloadUrl);
 
             if (!dlRes.ok) {
-                return m.reply(`❌ Download failed (HTTP ${dlRes.status}). Try again later.`);
+                return m.reply(`❌ Download failed (HTTP ${dlRes.status}). The video might be too long or blocked.`);
             }
 
             const dlData = await dlRes.json();
 
-            // The API might return different structures — try to handle them gracefully
+            // Handle various possible response structures
             const directVideoLink =
                 dlData.result?.download?.url ||
                 dlData.result?.download ||
@@ -66,12 +57,18 @@ module.exports = {
                 dlData.link;
 
             if (!directVideoLink) {
-                return m.reply('❌ Failed to get a direct video download link. The video may be too long or blocked.');
+                return m.reply('❌ Failed to get a direct video download link. The video may be too long or unavailable.');
             }
 
-            // 3. Send the video directly to WhatsApp
-            const caption = `🎬 *${title}*\n⏱ Duration: ${video.duration?.timestamp || video.duration || 'N/A'}\n👁 Views: ${typeof video.views === 'number' ? video.views.toLocaleString() : video.views || 'N/A'}\n🎥 Channel: ${video.channel?.name || video.author?.name || video.channelTitle || video.uploader || 'Unknown'}\n\n© popkid`;
+            // 4. Build caption with video details
+            const caption =
+                `🎬 *${title}*\n` +
+                `📺 Channel: ${video.channel || 'Unknown'}\n` +
+                `⏱ Duration: ${video.duration || 'N/A'}\n` +
+                `📌 Source: ${youtubeLink}\n\n` +
+                `© popkid`;
 
+            // 5. Send the video as a native WhatsApp video message
             await sock.sendMessage(m.from, {
                 video: { url: directVideoLink },
                 caption,
