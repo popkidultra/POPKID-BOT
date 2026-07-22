@@ -1,192 +1,88 @@
+const yts = require('yt-search');
 const axios = require('axios');
 
-const yts = require('yt-search');
+const DL_API = 'https://api.qasimdev.dpdns.org/api/loaderto/download';
+const API_KEY = 'qasim-dev';
+
+const wait = (ms) => new Promise(r => setTimeout(r, ms));
+
+async function downloadWithRetry(url, retries = 3) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            const { data } = await axios.get(DL_API, {
+                params: { apiKey: API_KEY, format: 'mp3', url },
+                timeout: 90000
+            });
+            if (data?.data?.downloadUrl) return data.data;
+            throw new Error('No download URL');
+        } catch (err) {
+            if (i === retries - 1) throw err;
+            console.log(`Download attempt ${i + 1} failed, retrying in 5s...`);
+            await wait(5000);
+        }
+    }
+    throw new Error('All download attempts failed');
+}
 
 module.exports = {
-
-name: 'play',
+    name: 'play',
     category: 'Downloaders',
-
-description: 'Download YouTube audio (link or search)',
-
-aliases: ['ytmp3', 'ytaudio', 'ytdlv3'],
-
-tags: ['downloader'],
-
-command: /^.?(ytdl|ytmp3|ytaudio|ytdlv3)/i,
-
-async execute(sock, m, args) {
-
-try {
-
-
-
-  if (!args[0]) {
-
-    return m.reply("Usage:\n.ytdl <youtube link>\n.ytdl <search query>");
-
-  }
-
-
-
-  await m.reply("⭐𝘗𝘭𝘦𝘢𝘴𝘦 𝘸𝘢𝘪𝘵... 𝘗𝘳𝘰𝘤𝘦𝘴𝘴𝘪𝘯𝘨 𝘳𝘦𝘲𝘶𝘦𝘴𝘵.");
-
-
-
-  let input = args.join(" ").trim();
-
-  let finalUrl = input;
-
-
-
-  if (!input.includes("youtube.com") && !input.includes("youtu.be")) {
-
-    const results = await yts(input);
-
-
-
-    if (!results || !results.videos || results.videos.length === 0) {
-
-      return m.reply("No results found on YouTube.");
-
-    }
-
-
-
-    finalUrl = results.videos[0].url;
-
-  }
-
-
-
-  const apiUrl = `https://api-abztech.zone.id/download/ytdlv3?url=${encodeURIComponent(finalUrl)}`;
-
-  const apiRes = await axios.get(apiUrl);
-
-  const data = apiRes.data;
-
-
-
-  if (!data || !data.status) {
-
-    return m.reply(`API Error: ${data?.message || "Unknown error"}`);
-
-  }
-
-
-
-  const { downloadUrl, filename, title, thumbnail } = data;
-
-
-
-  const audioRes = await axios.get(downloadUrl, {
-
-    responseType: "arraybuffer"
-
-  });
-
-
-
-  const buffer = Buffer.from(audioRes.data);
-
-
-
-  const quotedMsg = m.quoted || {
-
-    key: {
-
-      remoteJid: m.from,
-
-      fromMe: false,
-
-      id: m.id,
-
-      participant: m.sender
-
-    },
-
-    message: {
-
-      extendedTextMessage: {
-
-        text: m.body
-
-      }
-
-    }
-
-  };
-
-
-
-  await sock.sendMessage(
-
-    m.from,
-
-    {
-
-      audio: buffer,
-
-      mimetype: "audio/mpeg",
-
-      fileName: filename,
-
-      ptt: false,
-
-      contextInfo: {
-
-        forwardingScore: 999,
-
-        isForwarded: true,
-
-        forwardedNewsletterMessageInfo: {
-
-          newsletterJid: '120363426778975572@newsletter',
-
-          newsletterName: '😷popkid😷',
-
-          serverMessageId: 1
-
-        },
-
-        externalAdReply: {
-
-          title: title || filename,
-
-          body: "Powered by popkid Tech",
-
-          thumbnailUrl: thumbnail,   
-
-          mediaType: 1,
-
-          mediaUrl: finalUrl,
-
-          sourceUrl: finalUrl,
-
-          renderLargerThumbnail: true,
-
-          showAdAttribution: false
-
+    aliases: ['plays', 'music', 'song'],
+    description: 'Search and download a song as MP3 from YouTube',
+    command: /^\.?(play|plays|music|song)\b/i,
+
+    async execute(sock, m, args) {
+        const query = args.join(' ').trim();
+
+        if (!query) {
+            return m.reply('*Which song do you want to play?*\nUsage: .play <song name>');
         }
 
-      }
+        try {
+            await m.reply('🔍 *Searching...*');
 
-    },
+            const { videos } = await yts(query);
 
-    { quoted: quotedMsg }
+            if (!videos?.length) {
+                return m.reply('❌ *No results found!*');
+            }
 
-  );
+            const video = videos[0];
 
+            await m.reply(`✅ *Found:* ${video.title}\n⏱️ ${video.timestamp}\n👤 ${video.author.name}\n\n⏳ *Downloading... (this may take up to 30s)*`);
 
+            const songData = await downloadWithRetry(video.url);
 
-} catch (err) {
+            let thumbnailBuffer;
+            try {
+                const img = await axios.get(songData.thumbnail, { responseType: 'arraybuffer', timeout: 15000 });
+                thumbnailBuffer = Buffer.from(img.data);
+            } catch {
+                // no thumbnail available, not fatal
+            }
 
-  console.error('YTDL error:', err.response?.data || err.message);
+            await m.reply({
+                audio: { url: songData.downloadUrl },
+                mimetype: 'audio/mpeg',
+                fileName: `${songData.title}.mp3`,
+                contextInfo: {
+                    externalAdReply: {
+                        title: songData.title,
+                        body: `${video.author.name} • ${video.timestamp}`,
+                        thumbnail: thumbnailBuffer,
+                        mediaType: 2,
+                        sourceUrl: video.url
+                    }
+                }
+            });
 
-  m.reply('Failed to process request.');
-
-}
-
-}
-
+        } catch (err) {
+            console.error('Play error:', err.message);
+            const reason =
+                err.response?.status === 408 ? 'Download timed out. Try again in a moment.' :
+                err.response?.status === 429 ? 'Rate limited. Wait a minute.' :
+                err.message;
+            await m.reply(`❌ *Failed:* ${reason}`);
+        }
+    }
 };
