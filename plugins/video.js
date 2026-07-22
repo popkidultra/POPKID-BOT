@@ -1,93 +1,73 @@
-const yts = require('yt-search');
-const fetch = require('node-fetch');
-
 module.exports = {
     name: 'video',
-    category: 'Downloader',
-    aliases: ['ytv', 'youtubevideo'],
-    description: 'Download a YouTube video by title or query',
+    category: 'Downloaders',
+    aliases: ['vid', 'ytvideo'],
+    description: 'Search YouTube for a video',
+    command: /^\.?(video|vid|ytvideo)/i,
 
     async execute(sock, m, args) {
-        const query = args.join(' ');
-        const loadingMsg = await m.reply('🔍 Searching...');
-
-        if (!query) {
-            await sock.sendMessage(m.from, {
-                text: '❌ *VIDEO ERROR*\n━━━━━━━━━━━━━━━━\nGive me a video name, it\'s not rocket science.',
-                edit: loadingMsg.key
-            });
-            return;
-        }
-        if (query.length > 100) {
-            await sock.sendMessage(m.from, {
-                text: '❌ *VIDEO ERROR*\n━━━━━━━━━━━━━━━━\nTitle too long! Keep it under 100 characters.',
-                edit: loadingMsg.key
-            });
-            return;
-        }
-
         try {
-            const searchQuery = `${query} official`;
-            const searchResult = await yts(searchQuery);
-            const video = searchResult.videos[0];
+            const query = args.join(' ').trim();
 
-            if (!video) {
-                await sock.sendMessage(m.from, {
-                    text: `❌ *VIDEO ERROR*\n━━━━━━━━━━━━━━━━\nNothing found for "${query}". Try a different title.`,
-                    edit: loadingMsg.key
-                });
-                return;
+            if (!query) {
+                return m.reply('Usage: .video <search query>\nExample: .video faded alan walker');
             }
 
-            const encodedUrl = encodeURIComponent(video.url);
-            const apiUrl = `https://api.ootaizumi.web.id/downloader/youtube?url=${encodedUrl}&format=720`;
-            const response = await fetch(apiUrl, {
-                headers: {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                    "Accept": "application/json"
-                }
-            });
+            const apiUrl = `https://api.deline.web.id/search/youtube?q=${encodeURIComponent(query)}&apikey=agasamel`;
+
+            const response = await fetch(apiUrl);
+
+            if (!response.ok) {
+                return m.reply(`❌ Video search failed (HTTP ${response.status}). The API may be down or the query invalid.`);
+            }
+
             const data = await response.json();
 
-            if (!data.status || !data.result || !data.result.download) {
-                throw new Error('API returned no valid video data.');
+            if (data.status === false) {
+                return m.reply(`❌ Video search failed: ${data.message || data.error || 'Unknown error'}`);
             }
 
-            const title = data.result.title || video.title || 'Untitled';
-            const videoUrl = data.result.download;
-            const thumbnailUrl = data.result.thumbnail || video.thumbnail;
+            // The exact response shape from this API wasn't confirmed live, so we
+            // defensively check the common variants these "search youtube" APIs use.
+            const rawList =
+                data.result ??
+                data.results ??
+                data.data ??
+                data;
 
-            await sock.sendMessage(m.from, {
-                text: `✅ *Sending:* ${title}`,
-                edit: loadingMsg.key
-            });
+            const list = Array.isArray(rawList) ? rawList : (rawList ? [rawList] : []);
 
-            await sock.sendMessage(m.from, {
-                video: { url: videoUrl },
-                mimetype: 'video/mp4',
-                fileName: `${title}.mp4`,
-                contextInfo: {
-                    externalAdReply: {
-                        title: title,
-                        body: 'Powered by PopKid MD',
-                        thumbnailUrl: thumbnailUrl,
-                        sourceUrl: video.url,
-                        mediaType: 2,
-                        renderLargerThumbnail: true
-                    }
-                }
-            });
-
-        } catch (error) {
-            console.error('Video error:', error);
-            let userMessage = 'Download failed. Please try again later.';
-            if (error.message.includes('API returned')) {
-                userMessage = 'The video service rejected the request.';
+            if (!list.length) {
+                return m.reply(`No results found for "${query}".`);
             }
-            await sock.sendMessage(m.from, {
-                text: `❌ *VIDEO ERROR*\n━━━━━━━━━━━━━━━━\n${userMessage}\n${error.message}`,
-                edit: loadingMsg.key
-            });
+
+            const video = list[0];
+
+            const title = video.title || video.name || 'Unknown title';
+            const url = video.url || video.link || video.videoUrl || (video.videoId ? `https://youtu.be/${video.videoId}` : '') || (video.id ? `https://youtu.be/${video.id}` : '');
+            const thumbnail = video.thumbnail || video.thumb || video.image || (Array.isArray(video.thumbnails) ? video.thumbnails[0]?.url : '') || '';
+            const duration = video.duration?.timestamp || video.duration || video.timestamp || 'N/A';
+            const views = video.views || video.viewCount || 'N/A';
+            const channel = video.channel?.name || video.author?.name || video.channelTitle || video.uploader || 'Unknown';
+            const uploaded = video.uploadedAt || video.ago || video.publishedAt || '';
+
+            const caption = `🎬 *${title}*\n` +
+                `📌 Link: ${url || 'N/A'}\n` +
+                `⏱ Duration: ${duration}\n` +
+                `👁 Views: ${typeof views === 'number' ? views.toLocaleString() : views}\n` +
+                `🎥 Channel: ${channel}` +
+                (uploaded ? `\n📅 Uploaded: ${uploaded}` : '') +
+                `\n\n© popkid`;
+
+            if (thumbnail) {
+                await sock.sendMessage(m.from, { image: { url: thumbnail }, caption });
+            } else {
+                await m.reply(caption);
+            }
+
+        } catch (err) {
+            console.error('Video search error:', err);
+            m.reply('❌ Failed to search for the video. Please try again later.');
         }
     }
 };
