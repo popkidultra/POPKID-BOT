@@ -12,3 +12,4 @@ global.autoView = true;       // mark statuses as viewed (kept on, matches previ
 global.autoLike = false;      // react to statuses with a random emoji
 global.presenceMode = 'none'; // 'none' | 'typing' | 'recording' | 'online'
 global.updateZipUrl = 'https://github.com/popkidultra/POPKID-BOT/archive/refs/heads/main.zip';
+global.antidelete = 'false';  // 'false' | 'inchat' | 'indm' — toggle at runtime with .antidelete
