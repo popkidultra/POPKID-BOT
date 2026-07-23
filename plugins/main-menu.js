@@ -104,7 +104,12 @@ ${commandSections}
 `.trim();
 
     try {    
-        const imageBuffer = (await axios.get(global.menuImage, { responseType: 'arraybuffer' })).data;    
+        if (!global.menuImage) throw new Error('global.menuImage is not set');
+
+        const imageBuffer = (await axios.get(global.menuImage, {
+            responseType: 'arraybuffer',
+            timeout: 8000
+        })).data;    
         
         await m.reply(imageBuffer, { 
             caption: menuText,
@@ -120,8 +125,12 @@ ${commandSections}
         });
         
     } catch (err) {    
-        console.error('Menu error:', err);    
-        return;
+        console.error('Menu image error, falling back to text:', err.message);
+        try {
+            await m.reply(menuText);
+        } catch (err2) {
+            console.error('Menu fallback error:', err2.message);
+        }
     }    
 }
 
