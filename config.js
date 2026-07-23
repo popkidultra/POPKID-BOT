@@ -11,3 +11,4 @@ global.autoRead = false;      // mark every incoming chat message as read
 global.autoView = true;       // mark statuses as viewed (kept on, matches previous behavior)
 global.autoLike = false;      // react to statuses with a random emoji
 global.presenceMode = 'none'; // 'none' | 'typing' | 'recording' | 'online'
+global.updateZipUrl = 'https://github.com/popkidultra/POPKID-BOT/archive/refs/heads/main.zip';
