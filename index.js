@@ -11,6 +11,7 @@ const serializeMessage = require('./handler.js');
 const { decodeSessionId } = require('./lib/sessionLoader');
 const { AntideleteHandler } = require('./lib/antidelete');
 const { handleChatbotResponse } = require('./lib/chatbot');
+const { handleLinkDetection } = require('./lib/antilink');
 const JimpImport = require('jimp');
 
 const Jimp =
@@ -310,6 +311,10 @@ function startBot() {
                 if (m.isGroup && !rawMsg.key.fromMe) {
                     handleChatbotResponse(sock, m.from, rawMsg, m.body || '', m.sender)
                         .catch(err => console.error('Chatbot hook error:', err.message));
+
+                    const isExempt = m.isAdmin || m.isOwner || m.isDev;
+                    handleLinkDetection(sock, m.from, rawMsg, m.body || '', m.sender, isExempt)
+                        .catch(err => console.error('Antilink hook error:', err.message));
                 }
 
                 for (const plugin of plugins.values()) {
