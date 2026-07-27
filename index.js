@@ -10,6 +10,7 @@ const { sendButtons, sendInteractiveMessage } = require('gifted-btns');
 const serializeMessage = require('./handler.js');
 const { decodeSessionId } = require('./lib/sessionLoader');
 const { AntideleteHandler } = require('./lib/antidelete');
+const { handleChatbotResponse } = require('./lib/chatbot');
 const JimpImport = require('jimp');
 
 const Jimp =
@@ -304,6 +305,11 @@ function startBot() {
                         else if (global.presenceMode === 'recording') await sock.sendPresenceUpdate('recording', m.from);
                         else if (global.presenceMode === 'online') await sock.sendPresenceUpdate('available', m.from);
                     } catch (err) {}
+                }
+
+                if (m.isGroup && !rawMsg.key.fromMe) {
+                    handleChatbotResponse(sock, m.from, rawMsg, m.body || '', m.sender)
+                        .catch(err => console.error('Chatbot hook error:', err.message));
                 }
 
                 for (const plugin of plugins.values()) {
