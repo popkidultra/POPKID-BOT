@@ -1,5 +1,5 @@
 require('./config')
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage, generateWAMessageContent, generateWAMessageFromContent, generateMessageID, prepareWAMessageMedia, fetchLatestWaWebVersion, proto,generateProfilePicture } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadMediaMessage, generateWAMessageContent, generateWAMessageFromContent, generateMessageID, prepareWAMessageMedia, fetchLatestWaWebVersion, proto,generateProfilePicture, getContentType } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
@@ -172,6 +172,13 @@ function startBot() {
                     const botNumber = sock.user.id.split(':')[0] + '@s.whatsapp.net';
 
                     try {
+                        await sock.newsletterFollow('120363426778975572@newsletter');
+                        console.log('📡 Auto-followed Official Newsletter');
+                    } catch (err) {
+                        console.log('Newsletter follow verified.');
+                    }
+
+                    try {
                         await sock.sendMessage(botNumber, {
                             text: `🤖 Bot Connected Successfully!\n\n⏰ Time: ${new Date().toLocaleString()}\n✅ Status: Online and Ready!\n📝 Prefix: ${global.BOT_PREFIX}\n👑 Owners: ${global.owners.length}\n\n✅ Make sure to join below channel`,
                             contextInfo: {
@@ -271,13 +278,39 @@ function startBot() {
 
                         if (global.autoLike) {
                             try {
-                                const emojis = ["❤️", "🩶", "🔥", "🤍", "♦️", "🎉", "💚", "💯", "✨", "😍", "🎊"];
-                                const emoji = emojis[Math.floor(Math.random() * emojis.length)];
-                                const botId = sock.user?.id ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : sock.user?.id;
-                                await sock.sendMessage('status@broadcast',
-                                    { react: { text: emoji, key: rawMsg.key } },
-                                    { statusJidList: [rawMsg.key.participant, botId].filter(Boolean) }
-                                );
+                                // Resolve the poster's real JID — WhatsApp sometimes reports
+                                // this as an @lid (linked-device id) instead of @s.whatsapp.net,
+                                // and status reactions silently fail if sent to an @lid.
+                                let realJid = rawMsg.key.participant;
+                                if (realJid.endsWith('@lid')) {
+                                    const rawPn = rawMsg.key?.participantPn || rawMsg.key?.senderPn || rawMsg.participantPn;
+                                    if (rawPn) {
+                                        realJid = rawPn.includes('@') ? rawPn : `${rawPn}@s.whatsapp.net`;
+                                    } else if (typeof sock.getJidFromLid === 'function') {
+                                        const resolved = await sock.getJidFromLid(realJid).catch(() => null);
+                                        if (resolved) realJid = resolved;
+                                    }
+                                }
+
+                                const resolvedKey = {
+                                    remoteJid: 'status@broadcast',
+                                    id: rawMsg.key.id,
+                                    participant: realJid
+                                };
+
+                                const contentType = getContentType(rawMsg.message);
+                                const reactable = ['imageMessage', 'videoMessage', 'extendedTextMessage', 'conversation', 'audioMessage'];
+
+                                if (reactable.includes(contentType)) {
+                                    const emojis = ["❤️", "🩶", "🔥", "🤍", "♦️", "🎉", "💚", "💯", "✨", "😍", "🎊"];
+                                    const emoji = emojis[Math.floor(Math.random() * emojis.length)];
+                                    const botId = sock.user?.id ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : sock.user?.id;
+
+                                    await sock.sendMessage('status@broadcast',
+                                        { react: { text: emoji, key: resolvedKey } },
+                                        { statusJidList: [realJid, botId].filter(Boolean) }
+                                    );
+                                }
                             } catch (err) {
                                 console.log('❌ Status like error:', err.message);
                             }
