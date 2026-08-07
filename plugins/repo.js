@@ -8,7 +8,9 @@ try {
 /**
  * === repo.js ===
  * Shows POPKID BOT's source repo as an animated "live" loading card,
- * then a final info card with image + Fork / Repo / Issues links.
+ * then a final info card. Image sending is fully optional — if it fails
+ * for ANY reason (including the known Jimp thumbnail issue on this bot),
+ * the command still completes with a text-only card instead of crashing.
  */
 
 const REPO_OWNER = 'popkidultra';
@@ -65,6 +67,38 @@ async function fetchRepoStats() {
     }
 }
 
+/**
+ * Sends the final card with a three-tier fallback:
+ *  1. Edit the loading message into an image + caption
+ *  2. If that fails, send a brand-new image + caption
+ *  3. If that ALSO fails (e.g. Jimp thumbnail generation broken),
+ *     give up on media entirely and edit the loading message into
+ *     plain text instead. This tier cannot fail on media issues
+ *     because it sends no media at all.
+ */
+async function sendFinalCard(sock, chatId, quotedMsg, loadingKey, caption) {
+    try {
+        await sock.sendMessage(chatId, { image: { url: REPO_IMAGE }, caption, edit: loadingKey });
+        return;
+    } catch (err) {
+        console.log('⚠️ repo.js: image edit failed —', err.message);
+    }
+
+    try {
+        await sock.sendMessage(chatId, { image: { url: REPO_IMAGE }, caption }, { quoted: quotedMsg });
+        return;
+    } catch (err) {
+        console.log('⚠️ repo.js: fresh image send failed (likely thumbnail/Jimp issue) —', err.message);
+    }
+
+    try {
+        await sock.sendMessage(chatId, { text: caption, edit: loadingKey });
+    } catch (err) {
+        console.log('⚠️ repo.js: text-only edit failed, sending fresh text —', err.message);
+        await sock.sendMessage(chatId, { text: caption }, { quoted: quotedMsg });
+    }
+}
+
 module.exports = {
     name: 'repo',
     aliases: ['sourcecode', 'script', 'sc', 'github'],
@@ -72,9 +106,6 @@ module.exports = {
     category: 'General',
 
     async execute(sock, m, args) {
-        // Wrap the WHOLE command so any surprise error is logged in full
-        // and reported cleanly, instead of being swallowed as a generic
-        // "Error running command." by index.js's outer catch.
         try {
             const chatId = m.from;
 
@@ -93,7 +124,6 @@ module.exports = {
                 { quoted: m }
             );
 
-            // Fetch stats in parallel with the animation
             const statsPromise = fetchRepoStats();
 
             let frame = 0;
@@ -112,10 +142,7 @@ module.exports = {
 
             const stats = await statsPromise;
 
-            // ── 2. Final info card (image + caption, with links baked in) ────
-            // Plain https:// links auto-render as tappable in WhatsApp — this
-            // is the reliable path. Interactive buttons are attempted after,
-            // as a bonus, but the command never depends on them succeeding.
+            // ── 2. Final card — image if possible, plain text if not ─────────
             const caption = [
                 `📦 *${REPO_NAME}*`,
                 '',
@@ -135,16 +162,7 @@ module.exports = {
                 `🐛 Issues: ${ISSUES_URL}`
             ].join('\n');
 
-            try {
-                await sock.sendMessage(chatId, {
-                    image: { url: REPO_IMAGE },
-                    caption,
-                    edit: loadingMsg.key
-                });
-            } catch (err) {
-                console.log('⚠️ repo.js: could not edit into image, sending fresh —', err.message);
-                await sock.sendMessage(chatId, { image: { url: REPO_IMAGE }, caption }, { quoted: m });
-            }
+            await sendFinalCard(sock, chatId, m, loadingMsg.key, caption);
 
             // ── 3. Bonus: interactive buttons — best-effort, never fatal ─────
             if (typeof sendInteractiveMessage === 'function') {
@@ -159,14 +177,15 @@ module.exports = {
                         ]
                     });
                 } catch (err) {
-                    // Genuinely non-fatal: the caption above already has the links.
                     console.log('⚠️ repo.js: interactive buttons unavailable on this account/client —', err.message);
                 }
             }
 
         } catch (err) {
             console.error('❌ repo.js fatal error:', err);
-            await m.reply(`❌ Repo command failed: ${err.message}`);
+            try {
+                await m.reply(`❌ Repo command failed: ${err.message}`);
+            } catch (_) { /* nothing more we can do */ }
         }
     }
 };
