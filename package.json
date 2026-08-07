@@ -24,6 +24,7 @@
     "@whiskeysockets/baileys": "^7.0.0-rc13",
     "acrcloud": "^1.4.0",
     "axios": "^1.6.8",
+    "adm-zip": "^0.5.16",
     "body-parser": "*",
     "chalk": "^4.1.2",
     "dotenv": "^17.2.3",
