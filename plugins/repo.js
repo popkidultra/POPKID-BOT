@@ -1,191 +1,218 @@
-let sendButtons, sendInteractiveMessage;
-try {
-    ({ sendButtons, sendInteractiveMessage } = require('gifted-btns'));
-} catch (err) {
-    console.log('⚠️ repo.js: gifted-btns not available, buttons will fall back to plain links —', err.message);
-}
-
-/**
- * === repo.js ===
- * Shows POPKID BOT's source repo as an animated "live" loading card,
- * then a final info card. Image sending is fully optional — if it fails
- * for ANY reason (including the known Jimp thumbnail issue on this bot),
- * the command still completes with a text-only card instead of crashing.
- */
-
-const REPO_OWNER = 'popkidultra';
-const REPO_NAME = 'POPKID-BOT';
-const REPO_URL = `https://github.com/${REPO_OWNER}/${REPO_NAME}`;
-const FORK_URL = `${REPO_URL}/fork`;
-const ISSUES_URL = `${REPO_URL}/issues`;
-const REPO_IMAGE = 'https://i.ibb.co/WNv1hWXT/file-000000001f5c81f4a38f20223ae695d1.png';
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// Braille spinner frames — smooth, low-flicker motion when edited in place
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-
-function buildProgressBar(percent, size = 18) {
-    const filled = Math.round((percent / 100) * size);
-    return '▰'.repeat(filled) + '▱'.repeat(size - filled);
-}
-
-function buildLoadingFrame(spinner, percent, label) {
-    return [
-        '```',
-        `${spinner}  ${label}`,
-        `[${buildProgressBar(percent)}] ${percent}%`,
-        '```'
-    ].join('\n');
-}
-
-async function fetchRepoStats() {
-    try {
-        const res = await fetch(`https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}`, {
-            headers: { 'User-Agent': 'POPKID-BOT' }
-        });
-        if (!res.ok) throw new Error(`GitHub API status ${res.status}`);
-        const data = await res.json();
-        return {
-            description: data.description || 'No description provided.',
-            stars: data.stargazers_count ?? 0,
-            forks: data.forks_count ?? 0,
-            watchers: data.watchers_count ?? 0,
-            openIssues: data.open_issues_count ?? 0,
-            language: data.language || 'JavaScript',
-            license: data.license?.spdx_id || data.license?.name || 'MIT',
-            defaultBranch: data.default_branch || 'main',
-            updatedAt: data.pushed_at ? new Date(data.pushed_at).toLocaleDateString() : 'N/A'
-        };
-    } catch (err) {
-        console.log('⚠️ repo.js: falling back to static stats —', err.message);
-        return {
-            description: 'A modern WhatsApp bot built on Baileys.',
-            stars: '—', forks: '—', watchers: '—', openIssues: '—',
-            language: 'JavaScript', license: 'MIT', defaultBranch: 'main', updatedAt: 'N/A'
-        };
-    }
-}
-
-/**
- * Sends the final card with a three-tier fallback:
- *  1. Edit the loading message into an image + caption
- *  2. If that fails, send a brand-new image + caption
- *  3. If that ALSO fails (e.g. Jimp thumbnail generation broken),
- *     give up on media entirely and edit the loading message into
- *     plain text instead. This tier cannot fail on media issues
- *     because it sends no media at all.
- */
-async function sendFinalCard(sock, chatId, quotedMsg, loadingKey, caption) {
-    try {
-        await sock.sendMessage(chatId, { image: { url: REPO_IMAGE }, caption, edit: loadingKey });
-        return;
-    } catch (err) {
-        console.log('⚠️ repo.js: image edit failed —', err.message);
-    }
-
-    try {
-        await sock.sendMessage(chatId, { image: { url: REPO_IMAGE }, caption }, { quoted: quotedMsg });
-        return;
-    } catch (err) {
-        console.log('⚠️ repo.js: fresh image send failed (likely thumbnail/Jimp issue) —', err.message);
-    }
-
-    try {
-        await sock.sendMessage(chatId, { text: caption, edit: loadingKey });
-    } catch (err) {
-        console.log('⚠️ repo.js: text-only edit failed, sending fresh text —', err.message);
-        await sock.sendMessage(chatId, { text: caption }, { quoted: quotedMsg });
-    }
-}
-
 module.exports = {
     name: 'repo',
-    aliases: ['sourcecode', 'script', 'sc', 'github'],
-    description: 'Show POPKID BOT\'s source code, stats, and a fork link',
     category: 'General',
+    aliases: ['sourcecode', 'script', 'sc', 'github'],
+    description: 'Show live POPKID BOT GitHub information',
 
     async execute(sock, m, args) {
+        const REPO_OWNER = 'popkidultra';
+        const REPO_NAME = 'POPKID-BOT';
+
+        const REPO_URL = `https://github.com/${REPO_OWNER}/${REPO_NAME}`;
+        const API_URL = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}`;
+
+        // ─────────────────────────────
+        // SMALL LOADING ANIMATION
+        // ─────────────────────────────
+
+        const frames = [
+            '⏳ *Checking GitHub* ·',
+            '⏳ *Checking GitHub* ··',
+            '⏳ *Checking GitHub* ···',
+            '🔄 *Fetching repository* ·',
+            '🔄 *Fetching repository* ··',
+            '🔄 *Fetching repository* ···',
+            '⚡ *Loading live stats* ·',
+            '⚡ *Loading live stats* ··',
+            '⚡ *Loading live stats* ···'
+        ];
+
+        let loadingMsg;
+
         try {
-            const chatId = m.from;
+            loadingMsg = await m.reply('⏳ *Checking GitHub* ·');
+        } catch (err) {
+            console.error('Loading message error:', err);
+        }
 
-            // ── 1. Live loading animation: one message, edited in place ──────
-            const stages = [
-                { percent: 20, label: 'Connecting to GitHub…' },
-                { percent: 45, label: 'Fetching repository data…' },
-                { percent: 70, label: 'Reading commit stats…' },
-                { percent: 90, label: 'Building preview card…' },
-                { percent: 100, label: 'Done!' }
-            ];
+        // ─────────────────────────────
+        // START ANIMATION
+        // ─────────────────────────────
 
-            const loadingMsg = await sock.sendMessage(
-                chatId,
-                { text: buildLoadingFrame(SPINNER_FRAMES[0], 0, 'Initializing…') },
-                { quoted: m }
-            );
+        let running = true;
+        let frameIndex = 0;
 
-            const statsPromise = fetchRepoStats();
-
-            let frame = 0;
-            for (const stage of stages) {
-                await sleep(450);
-                frame = (frame + 1) % SPINNER_FRAMES.length;
+        const animate = async () => {
+            while (running && loadingMsg) {
                 try {
-                    await sock.sendMessage(chatId, {
-                        text: buildLoadingFrame(SPINNER_FRAMES[frame], stage.percent, stage.label),
+                    await new Promise(resolve =>
+                        setTimeout(resolve, 500)
+                    );
+
+                    if (!running) break;
+
+                    await sock.sendMessage(m.from, {
+                        text: frames[frameIndex],
                         edit: loadingMsg.key
                     });
+
+                    frameIndex =
+                        (frameIndex + 1) % frames.length;
+
                 } catch (err) {
-                    console.log('⚠️ repo.js edit frame failed:', err.message);
+                    running = false;
+                    console.error(
+                        'Loading animation error:',
+                        err
+                    );
                 }
             }
+        };
 
-            const stats = await statsPromise;
+        // Run animation in background
+        const animation = animate();
 
-            // ── 2. Final card — image if possible, plain text if not ─────────
-            const caption = [
-                `📦 *${REPO_NAME}*`,
-                '',
-                `${stats.description}`,
-                '',
-                `⭐ Stars: *${stats.stars}*`,
-                `🍴 Forks: *${stats.forks}*`,
-                `👁️ Watchers: *${stats.watchers}*`,
-                `🐛 Open Issues: *${stats.openIssues}*`,
-                `🗂️ Language: *${stats.language}*`,
-                `📄 License: *${stats.license}*`,
-                `🌿 Branch: *${stats.defaultBranch}*`,
-                `🕒 Last updated: *${stats.updatedAt}*`,
-                '',
-                `🔗 Repo: ${REPO_URL}`,
-                `🍴 Fork: ${FORK_URL}`,
-                `🐛 Issues: ${ISSUES_URL}`
-            ].join('\n');
+        // ─────────────────────────────
+        // DEFAULT DATA
+        // ─────────────────────────────
 
-            await sendFinalCard(sock, chatId, m, loadingMsg.key, caption);
+        let stats = {
+            description:
+                'A modern WhatsApp bot built on Baileys.',
+            stars: '—',
+            forks: '—',
+            watchers: '—',
+            issues: '—',
+            language: 'JavaScript',
+            license: 'MIT',
+            updated: 'N/A',
+            branch: 'main'
+        };
 
-            // ── 3. Bonus: interactive buttons — best-effort, never fatal ─────
-            if (typeof sendInteractiveMessage === 'function') {
-                try {
-                    await sendInteractiveMessage(sock, chatId, {
-                        text: '🚀 Want to contribute or run your own instance?',
-                        footer: 'POPKID BOT — open source on GitHub',
-                        interactiveButtons: [
-                            { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '🍴 Fork Repo', url: FORK_URL }) },
-                            { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '📂 View Repo', url: REPO_URL }) },
-                            { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '🐛 Report Issue', url: ISSUES_URL }) }
-                        ]
-                    });
-                } catch (err) {
-                    console.log('⚠️ repo.js: interactive buttons unavailable on this account/client —', err.message);
+        // ─────────────────────────────
+        // FETCH LIVE GITHUB DATA
+        // ─────────────────────────────
+
+        try {
+            const response = await fetch(API_URL, {
+                headers: {
+                    'User-Agent': 'POPKID-BOT',
+                    'Accept': 'application/vnd.github+json'
                 }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+
+                stats = {
+                    description:
+                        data.description ||
+                        stats.description,
+
+                    stars:
+                        data.stargazers_count ??
+                        stats.stars,
+
+                    forks:
+                        data.forks_count ??
+                        stats.forks,
+
+                    watchers:
+                        data.watchers_count ??
+                        stats.watchers,
+
+                    issues:
+                        data.open_issues_count ??
+                        stats.issues,
+
+                    language:
+                        data.language ||
+                        stats.language,
+
+                    license:
+                        data.license?.spdx_id ||
+                        data.license?.name ||
+                        stats.license,
+
+                    updated:
+                        data.pushed_at
+                            ? new Date(
+                                data.pushed_at
+                            ).toLocaleString()
+                            : stats.updated,
+
+                    branch:
+                        data.default_branch ||
+                        stats.branch
+                };
             }
 
-        } catch (err) {
-            console.error('❌ repo.js fatal error:', err);
-            try {
-                await m.reply(`❌ Repo command failed: ${err.message}`);
-            } catch (_) { /* nothing more we can do */ }
+        } catch (error) {
+            console.error(
+                'GitHub API error:',
+                error
+            );
         }
+
+        // ─────────────────────────────
+        // STOP ANIMATION
+        // ─────────────────────────────
+
+        running = false;
+
+        try {
+            await animation;
+        } catch (_) {}
+
+        // ─────────────────────────────
+        // FINAL MESSAGE
+        // ─────────────────────────────
+
+        const info =
+`╭─〔 *📦 POPKID BOT* 〕─╮
+│
+│ 📝 ${stats.description}
+│
+│ ⭐ *Stars:* ${stats.stars}
+│ 🍴 *Forks:* ${stats.forks}
+│ 👁️ *Watchers:* ${stats.watchers}
+│ 🐛 *Issues:* ${stats.issues}
+│ 💻 *Language:* ${stats.language}
+│ 📄 *License:* ${stats.license}
+│ 🌿 *Branch:* ${stats.branch}
+│ 🕒 *Updated:* ${stats.updated}
+│
+│ 🔗 *Repo:*
+│ ${REPO_URL}
+│
+│ 🍴 *Fork:*
+│ ${REPO_URL}/fork
+│
+╰─〔 *POPKID MD* 〕─╯`;
+
+        // ─────────────────────────────
+        // EDIT LOADING MESSAGE
+        // ─────────────────────────────
+
+        if (loadingMsg) {
+            try {
+                await sock.sendMessage(m.from, {
+                    text: info,
+                    edit: loadingMsg.key
+                });
+
+                return;
+            } catch (error) {
+                console.error(
+                    'Message edit error:',
+                    error
+                );
+            }
+        }
+
+        // Fallback
+        await sock.sendMessage(m.from, {
+            text: info
+        });
     }
 };
