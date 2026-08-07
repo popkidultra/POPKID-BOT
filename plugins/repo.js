@@ -1,9 +1,14 @@
-const { sendButtons, sendInteractiveMessage } = require('gifted-btns');
+let sendButtons, sendInteractiveMessage;
+try {
+    ({ sendButtons, sendInteractiveMessage } = require('gifted-btns'));
+} catch (err) {
+    console.log('⚠️ repo.js: gifted-btns not available, buttons will fall back to plain links —', err.message);
+}
 
 /**
  * === repo.js ===
  * Shows POPKID BOT's source repo as an animated "live" loading card,
- * then a final info card with image + Fork / Repo / Issues buttons.
+ * then a final info card with image + Fork / Repo / Issues links.
  */
 
 const REPO_OWNER = 'popkidultra';
@@ -64,116 +69,104 @@ module.exports = {
     name: 'repo',
     aliases: ['sourcecode', 'script', 'sc', 'github'],
     description: 'Show POPKID BOT\'s source code, stats, and a fork link',
-    category: 'info',
+    category: 'General',
 
     async execute(sock, m, args) {
-        const chatId = m.from;
+        // Wrap the WHOLE command so any surprise error is logged in full
+        // and reported cleanly, instead of being swallowed as a generic
+        // "Error running command." by index.js's outer catch.
+        try {
+            const chatId = m.from;
 
-        // ── 1. Live loading animation: one message, edited in place ──────────
-        const stages = [
-            { percent: 20, label: 'Connecting to GitHub…' },
-            { percent: 45, label: 'Fetching repository data…' },
-            { percent: 70, label: 'Reading commit stats…' },
-            { percent: 90, label: 'Building preview card…' },
-            { percent: 100, label: 'Done!' }
-        ];
+            // ── 1. Live loading animation: one message, edited in place ──────
+            const stages = [
+                { percent: 20, label: 'Connecting to GitHub…' },
+                { percent: 45, label: 'Fetching repository data…' },
+                { percent: 70, label: 'Reading commit stats…' },
+                { percent: 90, label: 'Building preview card…' },
+                { percent: 100, label: 'Done!' }
+            ];
 
-        const loadingMsg = await sock.sendMessage(
-            chatId,
-            { text: buildLoadingFrame(SPINNER_FRAMES[0], 0, 'Initializing…') },
-            { quoted: m }
-        );
+            const loadingMsg = await sock.sendMessage(
+                chatId,
+                { text: buildLoadingFrame(SPINNER_FRAMES[0], 0, 'Initializing…') },
+                { quoted: m }
+            );
 
-        // Kick off the stats fetch in parallel with the animation so we
-        // aren't just spinning for show — the wait is doing real work.
-        const statsPromise = fetchRepoStats();
+            // Fetch stats in parallel with the animation
+            const statsPromise = fetchRepoStats();
 
-        let frame = 0;
-        for (const stage of stages) {
-            await sleep(450);
-            frame = (frame + 1) % SPINNER_FRAMES.length;
+            let frame = 0;
+            for (const stage of stages) {
+                await sleep(450);
+                frame = (frame + 1) % SPINNER_FRAMES.length;
+                try {
+                    await sock.sendMessage(chatId, {
+                        text: buildLoadingFrame(SPINNER_FRAMES[frame], stage.percent, stage.label),
+                        edit: loadingMsg.key
+                    });
+                } catch (err) {
+                    console.log('⚠️ repo.js edit frame failed:', err.message);
+                }
+            }
+
+            const stats = await statsPromise;
+
+            // ── 2. Final info card (image + caption, with links baked in) ────
+            // Plain https:// links auto-render as tappable in WhatsApp — this
+            // is the reliable path. Interactive buttons are attempted after,
+            // as a bonus, but the command never depends on them succeeding.
+            const caption = [
+                `📦 *${REPO_NAME}*`,
+                '',
+                `${stats.description}`,
+                '',
+                `⭐ Stars: *${stats.stars}*`,
+                `🍴 Forks: *${stats.forks}*`,
+                `👁️ Watchers: *${stats.watchers}*`,
+                `🐛 Open Issues: *${stats.openIssues}*`,
+                `🗂️ Language: *${stats.language}*`,
+                `📄 License: *${stats.license}*`,
+                `🌿 Branch: *${stats.defaultBranch}*`,
+                `🕒 Last updated: *${stats.updatedAt}*`,
+                '',
+                `🔗 Repo: ${REPO_URL}`,
+                `🍴 Fork: ${FORK_URL}`,
+                `🐛 Issues: ${ISSUES_URL}`
+            ].join('\n');
+
             try {
                 await sock.sendMessage(chatId, {
-                    text: buildLoadingFrame(SPINNER_FRAMES[frame], stage.percent, stage.label),
+                    image: { url: REPO_IMAGE },
+                    caption,
                     edit: loadingMsg.key
                 });
             } catch (err) {
-                // Edits can silently fail on some clients — animation is
-                // cosmetic, so we just move on rather than crash the command.
-                console.log('⚠️ repo.js edit frame failed:', err.message);
+                console.log('⚠️ repo.js: could not edit into image, sending fresh —', err.message);
+                await sock.sendMessage(chatId, { image: { url: REPO_IMAGE }, caption }, { quoted: m });
             }
-        }
 
-        const stats = await statsPromise;
-
-        // ── 2. Final info card (image + caption) ─────────────────────────────
-        const caption = [
-            `📦 *${REPO_NAME}*`,
-            '',
-            `${stats.description}`,
-            '',
-            `⭐ Stars: *${stats.stars}*`,
-            `🍴 Forks: *${stats.forks}*`,
-            `👁️ Watchers: *${stats.watchers}*`,
-            `🐛 Open Issues: *${stats.openIssues}*`,
-            `🗂️ Language: *${stats.language}*`,
-            `📄 License: *${stats.license}*`,
-            `🌿 Branch: *${stats.defaultBranch}*`,
-            `🕒 Last updated: *${stats.updatedAt}*`,
-            '',
-            `🔗 ${REPO_URL}`
-        ].join('\n');
-
-        await sock.sendMessage(chatId, {
-            image: { url: REPO_IMAGE },
-            caption,
-            edit: loadingMsg.key
-        }).catch(async () => {
-            // Some clients can't edit text → media in place; fall back to a
-            // fresh media message if the edit itself is rejected.
-            await sock.sendMessage(chatId, { image: { url: REPO_IMAGE }, caption }, { quoted: m });
-        });
-
-        // ── 3. Buttons: Fork / View Repo / Report Issue ──────────────────────
-        await sendInteractiveMessage(sock, chatId, {
-            text: '🚀 Want to contribute or run your own instance?',
-            footer: 'POPKID BOT — open source on GitHub',
-            interactiveButtons: [
-                {
-                    name: 'cta_url',
-                    buttonParamsJson: JSON.stringify({
-                        display_text: '🍴 Fork Repo',
-                        url: FORK_URL
-                    })
-                },
-                {
-                    name: 'cta_url',
-                    buttonParamsJson: JSON.stringify({
-                        display_text: '📂 View Repo',
-                        url: REPO_URL
-                    })
-                },
-                {
-                    name: 'cta_url',
-                    buttonParamsJson: JSON.stringify({
-                        display_text: '🐛 Report Issue',
-                        url: ISSUES_URL
-                    })
+            // ── 3. Bonus: interactive buttons — best-effort, never fatal ─────
+            if (typeof sendInteractiveMessage === 'function') {
+                try {
+                    await sendInteractiveMessage(sock, chatId, {
+                        text: '🚀 Want to contribute or run your own instance?',
+                        footer: 'POPKID BOT — open source on GitHub',
+                        interactiveButtons: [
+                            { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '🍴 Fork Repo', url: FORK_URL }) },
+                            { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '📂 View Repo', url: REPO_URL }) },
+                            { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '🐛 Report Issue', url: ISSUES_URL }) }
+                        ]
+                    });
+                } catch (err) {
+                    // Genuinely non-fatal: the caption above already has the links.
+                    console.log('⚠️ repo.js: interactive buttons unavailable on this account/client —', err.message);
                 }
-            ]
-        }).catch(async (err) => {
-            // Fallback for clients/libs where sendInteractiveMessage isn't
-            // supported — degrade to the simpler sendButtons variant.
-            console.log('⚠️ repo.js interactive buttons failed, falling back:', err.message);
-            await sendButtons(sock, chatId, {
-                title: '📦 ' + REPO_NAME,
-                text: '🚀 Want to contribute or run your own instance?',
-                footer: 'POPKID BOT — open source on GitHub',
-                buttons: [
-                    { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '🍴 Fork Repo', url: FORK_URL }) },
-                    { name: 'cta_url', buttonParamsJson: JSON.stringify({ display_text: '📂 View Repo', url: REPO_URL }) }
-                ]
-            });
-        });
+            }
+
+        } catch (err) {
+            console.error('❌ repo.js fatal error:', err);
+            await m.reply(`❌ Repo command failed: ${err.message}`);
+        }
     }
 };
