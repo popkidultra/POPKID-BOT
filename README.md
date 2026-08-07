@@ -1,5 +1,5 @@
-<h1 align="center">POPKID-BOT</h1>
-<p align="center">A simple, fast and reliable WhatsApp bot.</p>
+<h1 align="center"><b>POPKID-BOT</b></h1>
+<p align="center"><b>A simple, fast and reliable WhatsApp bot.</b></p>
 
 <p align="center">
   <img src="https://n.uguu.se/HwVMxyFu.jpg" alt="POPKID-BOT Banner" width="100%" />
@@ -14,7 +14,7 @@
 
 ---
 
-### 🍴 Fork This Repo
+### 🍴 **Fork This Repo**
 
 <p align="center">
   <a href="https://github.com/popkidultra/POPKID-BOT/fork">
@@ -22,7 +22,7 @@
   </a>
 </p>
 
-### 🔑 Get Session ID
+### 🔑 **Get Session ID**
 
 <p align="center">
   <a href="https://popkid2026-1.onrender.com">
@@ -32,7 +32,7 @@
 
 ---
 
-### ☁️ Deploy
+### ☁️ **Deploy**
 
 <p align="center">
   <a href="https://heroku.com/deploy?template=https://github.com/popkidultra/POPKID-BOT">
@@ -46,17 +46,15 @@
   </a>
 </p>
 
-> ⚠️ The Heroku and Render buttons need an `app.json` (Heroku) and `render.yaml` (Render) in the repo root to actually one-click deploy — otherwise they just open the platform's generic import page. Happy to generate those config files if you want true one-click buttons.
-
 ---
 
-### 📋 Requirements
+### 📋 **Requirements**
 
-- A hosting platform (Heroku / Render / Katabump / VPS)
-- Node.js (check `package.json` for the exact version)
-- A valid Session ID (generate it using the button above)
+- **A hosting platform** (Heroku / Render / Katabump / VPS)
+- **Node.js** (check `package.json` for the exact version)
+- **A valid Session ID** (generate it using the button above)
 
-### ⚙️ Setup
+### ⚙️ **Setup**
 
 ```bash
 git clone https://github.com/popkidultra/POPKID-BOT
@@ -68,5 +66,5 @@ npm start
 ---
 
 <p align="center">
-  <sub>⭐ If you found this useful, consider starring the repo!</sub>
+  <sub><b>⭐ If you found this useful, consider starring the repo!</b></sub>
 </p>
