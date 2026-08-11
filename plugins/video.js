@@ -1,86 +1,117 @@
-const axios = require('axios');
-const yts = require('yt-search');
+const axios = require("axios");
+const yts = require("yt-search");
 
-const DL_API = 'https://api.qasimdev.dpdns.org/api/loaderto/download';
-const API_KEY = 'qasim-dev';
-
-const wait = (ms) => new Promise(r => setTimeout(r, ms));
-
-async function downloadWithRetry(url, retries = 3) {
-    for (let i = 0; i < retries; i++) {
-        try {
-            const { data } = await axios.get(DL_API, {
-                params: { apiKey: API_KEY, format: '360', url },
-                timeout: 120000
-            });
-            if (data?.data?.downloadUrl) return data.data;
-            throw new Error('No download URL');
-        } catch (err) {
-            if (i === retries - 1) throw err;
-            console.log(`Download attempt ${i + 1} failed, retrying in 5s...`);
-            await wait(5000);
+const newsletterContext = {
+    contextInfo: {
+        forwardingScore: 999,
+        isForwarded: true,
+        forwardedNewsletterMessageInfo: {
+            newsletterJid: "120363382023564830@newsletter",
+            newsletterName: "POPKID XMD",
+            serverMessageId: 1
         }
     }
-    throw new Error('All download attempts failed');
+};
+
+const api = axios.create({
+    timeout: 30000,
+    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" }
+});
+
+function isValidApiResult(json) {
+    return json && typeof json === "object" && json.status && json.result && json.result.downloadUrl;
 }
 
 module.exports = {
     name: 'video',
-    category: 'Downloaders',
-    aliases: ['ytmp4', 'ytvideo'],
-    description: 'Download YouTube videos by link or search',
-    command: /^\.?(video|ytmp4|ytvideo)\b/i,
+    category: 'Download',
+    aliases: ['video'],
+    description: 'Download video from YouTube by title or URL',
 
     async execute(sock, m, args) {
-        const query = args.join(' ').trim();
+        if (!args || !args[0]) return m.reply('❌ Please give me a title or URL.');
+        const q = args.join(" ");
 
-        if (!query) {
-            return m.reply('🎥 *What video do you want to download?*\nExample:\n.video Alan Walker Faded');
+        // --- 1. Loading message (same pattern as ping) ---
+        const loadingMsg = await m.reply('🔎 *Searching...*');
+
+        // --- 2. Search YouTube ---
+        let data;
+        try {
+            const search = await yts(q);
+            data = search?.videos?.[0];
+        } catch (err) {
+            console.error('darama: yt-search error:', err);
+            return editOrSend(sock, m, loadingMsg, '❌ Search failed, try again.');
         }
 
+        if (!data) return editOrSend(sock, m, loadingMsg, '❌ No results found.');
+
+        await editOrSend(sock, m, loadingMsg, `🎥 *Found:* ${data.title}\n⬇️ Downloading video...`);
+
+        // --- 3. Fetch download link ---
+        let apiRes;
         try {
-            let videoUrl, videoTitle, videoThumbnail;
-
-            if (query.startsWith('http://') || query.startsWith('https://')) {
-                videoUrl = query;
-            } else {
-                const { videos } = await yts(query);
-                if (!videos?.length) {
-                    return m.reply('❌ No videos found!');
-                }
-                videoUrl = videos[0].url;
-                videoTitle = videos[0].title;
-                videoThumbnail = videos[0].thumbnail;
-            }
-
-            const validYT = videoUrl.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|shorts\/|embed\/))([a-zA-Z0-9_-]{11})/);
-            if (!validYT) {
-                return m.reply('❌ Not a valid YouTube link!');
-            }
-
-            const ytId = validYT[1];
-            const thumb = videoThumbnail || `https://i.ytimg.com/vi/${ytId}/sddefault.jpg`;
-
-            await m.reply({
-                image: { url: thumb },
-                caption: `🎬 *${videoTitle || query}*\n⬇️ Downloading... *(may take up to 30s)*`
+            apiRes = await api.get("https://apiziaul.vercel.app/api/downloader/ytmp4", {
+                params: { url: data.url }
             });
+        } catch (apiErr) {
+            console.error('darama: API request failed:', apiErr.message);
+            return editOrSend(sock, m, loadingMsg, '❌ Video download API is unreachable right now, try again shortly.');
+        }
 
-            const videoData = await downloadWithRetry(videoUrl);
+        const json = apiRes.data;
+        if (!isValidApiResult(json)) {
+            console.error('darama: bad API response:', JSON.stringify(json).slice(0, 300));
+            return editOrSend(sock, m, loadingMsg, '❌ Failed to fetch video (API returned no download link, API might be down).');
+        }
 
-            await m.reply({
-                video: { url: videoData.downloadUrl },
-                mimetype: 'video/mp4',
-                fileName: `${videoData.title || videoTitle || 'video'}.mp4`,
-                caption: `🎬 *${videoData.title || videoTitle || 'Video'}*\n\n> *_Downloaded by popkid_*`
-            });
+        const downloadUrl = json.result.downloadUrl;
+        const title = json.result.title || json.result.filename || data.title;
 
-        } catch (err) {
-            console.error('[VIDEO] Error:', err.message);
-            const reason = err.response?.status === 408
-                ? 'Download timed out. Try again.'
-                : err.message;
-            await m.reply(`❌ Download failed!\nReason: ${reason}`);
+        // --- 4. Original darama card style, kept as-is ---
+        const desc = `
+*⫷⦁POPKID XMD VⵊDEO DOWNLOADⵊNG⦁⫸*
+
+🎥 *VIDEO FOUND!* 
+
+➥ *Title:* ${data.title} 
+➥ *Duration:* ${data.timestamp} 
+➥ *Views:* ${data.views} 
+➥ *Uploaded On:* ${data.ago} 
+➥ *Link:* ${data.url} 
+
+🎬 *ENJOY THE VIDEO!*
+_By POPKID XMD_
+`;
+
+        try {
+            await sock.sendMessage(m.from, { image: { url: data.thumbnail }, caption: desc, ...newsletterContext }, { quoted: m.key ? m : undefined });
+            await sock.sendMessage(m.from, { video: { url: downloadUrl }, mimetype: "video/mp4", ...newsletterContext }, { quoted: m.key ? m : undefined });
+            await sock.sendMessage(m.from, {
+                document: { url: downloadUrl },
+                mimetype: "video/mp4",
+                fileName: title + ".mp4",
+                caption: "*© POPKID XMD*",
+                ...newsletterContext
+            }, { quoted: m.key ? m : undefined });
+
+            // --- 5. Clean up loading message on success ---
+            await editOrSend(sock, m, loadingMsg, '✅ *Done!*');
+        } catch (sendErr) {
+            console.error('darama: send error:', sendErr);
+            await editOrSend(sock, m, loadingMsg, '❌ Failed to send the video, try again.');
         }
     }
 };
+
+// Edits the loading message like ping does, falling back to a new message
+// if the WA client/baileys version doesn't support edits.
+async function editOrSend(sock, m, loadingMsg, text) {
+    try {
+        await sock.sendMessage(m.from, { text, edit: loadingMsg.key });
+    } catch (err) {
+        console.error('darama: edit failed, sending new message:', err.message);
+        await sock.sendMessage(m.from, { text });
+    }
+}
