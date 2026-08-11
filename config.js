@@ -9,8 +9,8 @@ global.ownerName = '😷popkid😷';
 // Auto features (toggle at runtime with the .autofeature command)
 global.autoRead = false;      // mark every incoming chat message as read
 global.autoView = true;       // mark statuses as viewed (kept on, matches previous behavior)
-global.autoLike = true;       // FIX: was false — this is why status react never fired even
-                               // though status view worked. Now on by default.
+global.autoLike = true;       // react to statuses with an emoji
+global.autoReactEmoji = 'random'; // set to a specific emoji e.g. '❤️' to always use that one
 global.statusReactThrottleMs = 5000; // min ms between status reactions (prevents burst-spam)
 global.statusReactDelayMs = 2000;    // pause after reacting before handling the next status
 global.presenceMode = 'none'; // 'none' | 'typing' | 'recording' | 'online'
