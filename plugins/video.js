@@ -6,7 +6,7 @@ const newsletterContext = {
         forwardingScore: 999,
         isForwarded: true,
         forwardedNewsletterMessageInfo: {
-            newsletterJid: "120363382023564830@newsletter",
+            newsletterJid: "120363426778975572@newsletter",
             newsletterName: "POPKID XMD",
             serverMessageId: 1
         }
