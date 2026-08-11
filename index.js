@@ -31,10 +31,12 @@ global.generateProfilePicture = generateProfilePicture;
 global.downloadMediaMessage = downloadMediaMessage;
 global.bannedChats = global.bannedChats || [];
 
-// ── Status auto-view / auto-react toggles (defaults; override in config.json) ──
+// ── Status auto-view / auto-react toggles (set in config.js; these are just safe fallbacks) ──
 if (global.autoView === undefined) global.autoView = true;
-if (global.autoReact === undefined) global.autoReact = true;
+if (global.autoLike === undefined) global.autoLike = true;
 if (global.autoReactEmoji === undefined) global.autoReactEmoji = 'random';
+if (global.statusReactThrottleMs === undefined) global.statusReactThrottleMs = 5000;
+if (global.statusReactDelayMs === undefined) global.statusReactDelayMs = 2000;
 
 if (!fs.existsSync(__dirname + '/session/creds.json') && global.sessionid) {
     const result = decodeSessionId(global.sessionid);
@@ -64,6 +66,7 @@ let sock = null;
 let isConnecting = false;
 
 const STATUS_REACT_EMOJIS = ['❤️', '🩶', '🔥', '🤍', '💚', '💯', '✨', '😍', '🎉', '⚡'];
+let lastStatusReactAt = 0;
 
 function pickStatusEmoji() {
     if (global.autoReactEmoji && global.autoReactEmoji !== 'random') {
@@ -293,27 +296,35 @@ function startBot() {
                             }
                         }
 
-                        if (global.autoReact) {
-                            try {
-                                const emoji = pickStatusEmoji();
-                                const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+                        if (global.autoLike) {
+                            const now = Date.now();
+                            const sinceLastReact = now - lastStatusReactAt;
 
-                                // small human-like delay so reacts don't fire instantly on every status
-                                const delay = 1500 + Math.floor(Math.random() * 3500);
-                                await new Promise(r => setTimeout(r, delay));
+                            if (sinceLastReact < global.statusReactThrottleMs) {
+                                console.log(`⏭️ Skipped status react (throttled, ${sinceLastReact}ms since last)`);
+                            } else {
+                                try {
+                                    const emoji = pickStatusEmoji();
+                                    const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
 
-                                await sock.sendMessage('status@broadcast', {
-                                    react: {
-                                        text: emoji,
-                                        key: rawMsg.key
+                                    await sock.sendMessage('status@broadcast', {
+                                        react: {
+                                            text: emoji,
+                                            key: rawMsg.key
+                                        }
+                                    }, {
+                                        statusJidList: [rawMsg.key.participant, botJid]
+                                    });
+
+                                    lastStatusReactAt = Date.now();
+                                    console.log(`💫 Reacted ${emoji} to status from ${rawMsg.key.participant}`);
+
+                                    if (global.statusReactDelayMs > 0) {
+                                        await new Promise(r => setTimeout(r, global.statusReactDelayMs));
                                     }
-                                }, {
-                                    statusJidList: [rawMsg.key.participant, botJid]
-                                });
-
-                                console.log(`💫 Reacted ${emoji} to status from ${rawMsg.key.participant}`);
-                            } catch (err) {
-                                console.log('❌ Status react error:', err.message);
+                                } catch (err) {
+                                    console.log('❌ Status react error:', err.message);
+                                }
                             }
                         }
 
