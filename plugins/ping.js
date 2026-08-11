@@ -1,3 +1,17 @@
+const os = require('os');
+
+const newsletterContext = {
+    contextInfo: {
+        forwardingScore: 999,
+        isForwarded: true,
+        forwardedNewsletterMessageInfo: {
+            newsletterJid: '120363426778975572@newsletter',
+            newsletterName: 'POPKID XMD',
+            serverMessageId: 1
+        }
+    }
+};
+
 module.exports = {
     name: 'ping',
     category: 'General',
@@ -33,27 +47,38 @@ module.exports = {
         if (minutes) uptimeStr += `${minutes}m `;
         uptimeStr += `${seconds}s`;
 
-        // --- 5. Build the response message ---
-        const statusEmoji = latency < 200 ? '🟢' : latency < 500 ? '🟡' : '🔴';
-        const info = 
-`┌─── *🏓 PONG !* ───┐
-│
-│  ${statusEmoji} *Bot Latency* : ${latency} ms
-│  📡 *WebSocket Ping* : ${wsPing}
-│  ⏱️ *Uptime*        : ${uptimeStr}
-│
-└─── *PopKid MD* ───┘`;
+        // --- 5. Memory usage (extra polish) ---
+        const usedMB = (process.memoryUsage().rss / 1024 / 1024).toFixed(1);
+        const totalMB = (os.totalmem() / 1024 / 1024).toFixed(0);
 
-        // --- 6. Edit the loading message with the result ---
+        // --- 6. Build the response message ---
+        const statusEmoji = latency < 200 ? '🟢' : latency < 500 ? '🟡' : '🔴';
+        const info =
+`🏓 *Pong!*
+
+${statusEmoji} *Latency* : ${latency} ms
+📡 *WS Ping* : ${wsPing}
+⏱️ *Uptime* : ${uptimeStr}
+🧠 *Memory* : ${usedMB} MB / ${totalMB} MB
+
+_POPKID XMD_`;
+
+        // --- 7. Edit the loading message with the result ---
         try {
             await sock.sendMessage(m.from, {
                 text: info,
-                edit: loadingMsg.key
+                edit: loadingMsg.key,
+                ...newsletterContext
             });
         } catch (err) {
             console.error('Ping edit error:', err);
             // Fallback: send a new message if editing fails
-            await sock.sendMessage(m.from, { text: `🏓 Pong! Latency: ${latency} ms` });
+            try {
+                await sock.sendMessage(m.from, { text: info, ...newsletterContext });
+            } catch (err2) {
+                console.error('Ping fallback send error:', err2);
+                await sock.sendMessage(m.from, { text: `🏓 Pong! Latency: ${latency} ms` });
+            }
         }
     }
 };
