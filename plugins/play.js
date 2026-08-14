@@ -1,6 +1,5 @@
-import yts from 'yt-search';
-import axios from 'axios';
-import { sendInteractiveMessage } from 'gifted-btns';
+const axios = require('axios');
+const { sendInteractiveMessage } = require('gifted-btns');
 
 // ────────────────────────────────
 // Config
@@ -15,22 +14,28 @@ const FOOTER = 'popkid 🇬🇭';
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// yt-search ships as ESM in newer versions, which breaks a plain require()
+// in a CommonJS project. Loading it lazily via dynamic import() works
+// either way (CJS or ESM) without needing "type": "module" in package.json.
+let ytsPromise;
+function getYts() {
+    if (!ytsPromise) {
+        ytsPromise = import('yt-search').then((mod) => mod.default || mod);
+    }
+    return ytsPromise;
+}
+
 // ────────────────────────────────
 // Helpers
 // ────────────────────────────────
 
-/**
- * Search YouTube and return the top result.
- */
 async function searchSong(query) {
+    const yts = await getYts();
     const { videos } = await yts(query);
     if (!videos?.length) return null;
     return videos[0];
 }
 
-/**
- * Download a track as mp3, retrying on transient failures.
- */
 async function downloadWithRetry(url, retries = MAX_RETRIES) {
     let lastErr;
 
@@ -54,9 +59,6 @@ async function downloadWithRetry(url, retries = MAX_RETRIES) {
     throw lastErr ?? new Error('All download attempts failed');
 }
 
-/**
- * Fetch a thumbnail as a buffer; never throws — returns undefined on failure.
- */
 async function fetchThumbnail(url) {
     if (!url) return undefined;
     try {
@@ -70,9 +72,6 @@ async function fetchThumbnail(url) {
     }
 }
 
-/**
- * Translate a caught error into a user-friendly message.
- */
 function describeError(err) {
     const status = err.response?.status;
     if (status === 408) return 'Download timed out. Try again in a moment.';
@@ -80,19 +79,33 @@ function describeError(err) {
     return err.message || 'Something went wrong.';
 }
 
+/**
+ * Pull the query text out of the incoming message object.
+ * Tries the common shapes different loaders use so this doesn't
+ * silently return an empty string if m.args isn't populated.
+ */
+function extractQuery(m) {
+    if (Array.isArray(m.args) && m.args.length) return m.args.join(' ').trim();
+
+    const raw = m.text || m.body || '';
+    const parts = raw.trim().split(/\s+/);
+    parts.shift(); // drop the command itself (e.g. ".play")
+    return parts.join(' ').trim();
+}
+
 // ────────────────────────────────
 // Command
 // ────────────────────────────────
-export default {
-    command: 'play',
-    aliases: ['plays', 'music'],
+module.exports = {
+    name: 'play',
     category: 'music',
-    description: 'Search and download a song as MP3 from YouTube',
+    aliases: ['plays', 'music'],
+    description: 'Search and download a song as MP3 from YouTube.',
     usage: '.play <song name>',
 
-    async handler(sock, message, args, context) {
-        const chatId = context.chatId || message.key.remoteJid;
-        const query = args.join(' ').trim();
+    async execute(sock, m) {
+        const chatId = m.from;
+        const query = extractQuery(m);
 
         if (!query) {
             return sendInteractiveMessage(sock, chatId, {
@@ -144,7 +157,7 @@ export default {
                         }
                     }
                 },
-                { quoted: message }
+                { quoted: m }
             );
         } catch (err) {
             console.error('[play] Error:', err.message);
