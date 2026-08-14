@@ -45,16 +45,31 @@ module.exports = {
     description: 'Update POPKID-BOT to the latest version from GitHub',
 
     async execute(sock, m, args) {
+        // --- 0. Owner Check ---
+        if (!m.isOwner) {
+            return await sock.sendMessage(m.from, { 
+                text: '❌ *This command is restricted to the Bot Owner!*', 
+                ...newsletterContext 
+            }, { quoted: m });
+        }
+
         // --- 1. Send loading message ---
-        const loadingMsg = await m.reply('🔍 *Checking for updates...*');
+        const loadingMsg = await sock.sendMessage(m.from, { 
+            text: '🔍 *Checking for updates...*', 
+            ...newsletterContext 
+        }, { quoted: m });
 
         const repoOwnerAndName = 'popkidultra/POPKID-BOT';
         const branch = 'main';
 
+        const zipPath = path.join(__dirname, '..', 'popkid-bot-main.zip');
+        const extractPath = path.join(__dirname, '..', 'latest');
+
         try {
             // --- 2. Check GitHub for the latest commit ---
             const { data: commitData } = await axios.get(
-                `https://api.github.com/repos/${repoOwnerAndName}/commits/${branch}`
+                `https://api.github.com/repos/${repoOwnerAndName}/commits/${branch}`,
+                { headers: { 'User-Agent': 'POPKID-BOT' } }
             );
             const latestCommitHash = commitData.sha;
 
@@ -79,18 +94,18 @@ module.exports = {
             });
 
             // --- 4. Fetch and extract repo archive ---
-            const zipPath = path.join(__dirname, '..', 'popkid-bot-main.zip');
             const { data: zipData } = await axios.get(
                 `https://github.com/${repoOwnerAndName}/archive/refs/heads/${branch}.zip`,
-                { responseType: 'arraybuffer' }
+                { responseType: 'arraybuffer', headers: { 'User-Agent': 'POPKID-BOT' } }
             );
             fs.writeFileSync(zipPath, zipData);
 
-            const extractPath = path.join(__dirname, '..', 'latest');
             const zip = new AdmZip(zipPath);
             zip.extractAllTo(extractPath, true);
 
-            const sourcePath = path.join(extractPath, 'POPKID-BOT-main');
+            // GitHub archives extract as folder: {RepositoryName}-{BranchName}
+            const extractedFolders = fs.readdirSync(extractPath);
+            const sourcePath = path.join(extractPath, extractedFolders[0]);
             const destinationPath = path.join(__dirname, '..');
 
             // Do not overwrite sensitive configuration or local state
@@ -122,6 +137,10 @@ module.exports = {
 
         } catch (err) {
             console.error('Update command error:', err);
+
+            // Cleanup on failure
+            if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
+            if (fs.existsSync(extractPath)) fs.rmSync(extractPath, { recursive: true, force: true });
 
             // Fallback error editing/messaging
             try {
