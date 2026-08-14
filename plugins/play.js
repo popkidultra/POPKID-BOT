@@ -1,119 +1,136 @@
 const axios = require('axios');
-const yts = require('yt-search');
+const yts = require('yt-search'); // npm i yt-search  (only needed if you want text search, not just links)
 
-const newsletterContext = {
-    contextInfo: {
-        forwardingScore: 999,
-        isForwarded: true,
-        forwardedNewsletterMessageInfo: {
-            newsletterJid: '120363426778975572@newsletter',
-            newsletterName: 'POPKID XMD',
-            serverMessageId: 1
-        }
+const YT_MP3_API = 'https://jerrycoder.oggyapi.workers.dev/down/ytmp3?url=';
+
+const YOUTUBE_URL_REGEX =
+    /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([\w-]{11})/i;
+
+// Resolve whatever the user typed into a clean YouTube video URL + basic info.
+async function resolveYoutubeTarget(query) {
+    const match = query.match(YOUTUBE_URL_REGEX);
+    if (match) {
+        const videoId = match[1];
+        return {
+            url: `https://youtu.be/${videoId}`,
+        };
     }
-};
+
+    // Not a link -> treat it as a search term
+    const searchResult = await yts(query);
+    const video = searchResult && searchResult.videos && searchResult.videos[0];
+    if (!video) {
+        return null;
+    }
+    return {
+        url: video.url,
+        title: video.title,
+        duration: video.timestamp,
+        thumbnail: video.thumbnail,
+    };
+}
+
+function formatDuration(totalSeconds) {
+    if (!totalSeconds || isNaN(totalSeconds)) return 'Unknown';
+    const seconds = Math.floor(totalSeconds % 60);
+    const minutes = Math.floor(totalSeconds / 60);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
 
 module.exports = {
     name: 'play',
-    category: 'Music',
-    aliases: ['song', 'mp3', 'ytmp3'],
-    description: 'Search and play any song from YouTube',
+    category: 'Downloader',
+    aliases: ['song', 'ytmp3', 'audio'],
+    description: 'Search YouTube (or paste a link) and send the audio',
 
     async execute(sock, m, args) {
+        const query = Array.isArray(args) ? args.join(' ').trim() : String(args || '').trim();
+
+        if (!query) {
+            return sock.sendMessage(
+                m.from,
+                { text: '❓ *Usage:* .play <song name or YouTube link>\n\n*Example:* .play Камин EMIN & JONY' },
+                { quoted: m }
+            );
+        }
+
+        let loadingMsg;
         try {
-            // Check if query is provided
-            const text = args.join(' ');
-            if (!text) {
-                return await sock.sendMessage(m.from, {
-                    text: '⚠️ *Please provide a song name or YouTube link!*\n\n*Example:* `.play EMIN JONY Kamin`',
-                    ...newsletterContext
-                }, { quoted: m });
+            loadingMsg = await sock.sendMessage(
+                m.from,
+                { text: `🔎 *Searching for:* ${query}...` },
+                { quoted: m }
+            );
+        } catch (e) {
+            console.error('Failed to send loading message:', e);
+        }
+
+        const editOrSend = async (text) => {
+            if (loadingMsg && loadingMsg.key) {
+                return sock.sendMessage(m.from, { text, edit: loadingMsg.key });
+            }
+            return sock.sendMessage(m.from, { text }, { quoted: m });
+        };
+
+        try {
+            // --- 1. Resolve to a real YouTube URL (search if needed) ---
+            const target = await resolveYoutubeTarget(query);
+            if (!target) {
+                return editOrSend('❌ *No results found for that search.*');
             }
 
-            // 1. Send searching indicator
-            const loadingMsg = await sock.sendMessage(m.from, {
-                text: '🔍 *Searching for the song...*',
-                ...newsletterContext
-            }, { quoted: m });
+            await editOrSend(`⏳ *Found it! Fetching audio for:*\n${target.title || target.url}`);
 
-            let videoUrl = text;
-            let videoTitle = text;
-            let videoThumbnail = '';
-            let videoDuration = '';
-
-            // Check if user provided a search term instead of a direct link
-            if (!text.includes('youtube.com') && !text.includes('youtu.be')) {
-                const searchResults = await yts(text);
-                const videos = searchResults.videos;
-
-                if (!videos || videos.length === 0) {
-                    return await sock.sendMessage(m.from, {
-                        text: '❌ *No results found for your query!*',
-                        edit: loadingMsg.key,
-                        ...newsletterContext
-                    });
-                }
-
-                const topResult = videos[0];
-                videoUrl = topResult.url;
-                videoTitle = topResult.title;
-                videoThumbnail = topResult.thumbnail;
-                videoDuration = topResult.timestamp;
-            }
-
-            // 2. Update status to Downloading
-            await sock.sendMessage(m.from, {
-                text: `🎵 *Song Found!*\n\n📌 *Title:* ${videoTitle}\n⏱️ *Duration:* ${videoDuration || 'Unknown'}\n\n⏳ *Fetching audio from server...*`,
-                edit: loadingMsg.key,
-                ...newsletterContext
-            });
-
-            // 3. Call your JerryCoder API endpoint
-            const apiUrl = `https://jerrycoder.oggyapi.workers.dev/down/ytmp3?url=${encodeURIComponent(videoUrl)}`;
-            const { data } = await axios.get(apiUrl, {
-                headers: { 'User-Agent': 'POPKID-BOT' },
-                timeout: 30000 // 30 seconds timeout
-            });
+            // --- 2. Call the conversion API ---
+            const apiUrl = `${YT_MP3_API}${encodeURIComponent(target.url)}`;
+            const { data } = await axios.get(apiUrl, { timeout: 30000 });
 
             if (!data || data.status !== 'success' || !data.url) {
-                return await sock.sendMessage(m.from, {
-                    text: '❌ *Failed to download audio. Please try another song.*',
-                    edit: loadingMsg.key,
-                    ...newsletterContext
-                });
+                console.error('ytmp3 API returned unexpected payload:', data);
+                return editOrSend('❌ *Failed to convert this video to audio. Try a different link/song.*');
             }
 
-            // 4. Update status: Uploading Audio
-            await sock.sendMessage(m.from, {
-                text: '🚀 *Sending audio file...*',
-                edit: loadingMsg.key,
-                ...newsletterContext
+            const {
+                title = target.title || 'Unknown title',
+                duration,
+                url: audioUrl,
+            } = data;
+
+            // --- 3. Download the audio into a buffer ---
+            const audioResponse = await axios.get(audioUrl, {
+                responseType: 'arraybuffer',
+                timeout: 60000,
+                maxContentLength: 50 * 1024 * 1024, // 50MB safety cap
             });
+            const audioBuffer = Buffer.from(audioResponse.data);
 
-            // 5. Send Audio File
-            await sock.sendMessage(m.from, {
-                audio: { url: data.url },
-                mimetype: 'audio/mp4',
-                fileName: `${data.title || videoTitle}.mp3`,
-                contextInfo: {
-                    externalAdReply: {
-                        title: data.title || videoTitle,
-                        body: 'POPKID XMD AUDIO PLAYER',
-                        mediaType: 1,
-                        thumbnailUrl: videoThumbnail || 'https://i.imgur.com/2A48MvW.jpeg',
-                        sourceUrl: videoUrl,
-                        renderLargerThumbnail: true
-                    },
-                    ...newsletterContext.contextInfo
-                }
-            }, { quoted: m });
+            if (!audioBuffer || audioBuffer.length === 0) {
+                return editOrSend('❌ *Downloaded audio was empty. Please try again.*');
+            }
 
+            // --- 4. Send as a real playable audio message ---
+            await sock.sendMessage(
+                m.from,
+                {
+                    audio: audioBuffer,
+                    mimetype: 'audio/mpeg',
+                    fileName: `${title}.mp3`,
+                    ptt: false, // set true if you want it sent as a voice note instead
+                },
+                { quoted: m }
+            );
+
+            await editOrSend(
+                `✅ *Sent!*\n\n🎵 *Title:* ${title}\n⏱️ *Duration:* ${formatDuration(duration)}`
+            );
         } catch (err) {
             console.error('Play command error:', err);
-            await sock.sendMessage(m.from, {
-                text: `❌ *An error occurred:* ${err.message || 'Unable to process audio request.'}`,
-                ...newsletterContext
-            }, { quoted: m });
+            const msg = `❌ *Failed to fetch/send audio:* ${err.message || 'Check logs for details.'}`;
+            try {
+                await editOrSend(msg);
+            } catch (err2) {
+                console.error('Also failed to send error message:', err2);
+            }
         }
-    }
+    },
 };
