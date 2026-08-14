@@ -15,101 +15,105 @@ const newsletterContext = {
 
 module.exports = {
     name: 'play',
-    category: 'Media',
-    aliases: ['song', 'ytmp3', 'music'],
-    description: 'Search and download songs from YouTube',
+    category: 'Music',
+    aliases: ['song', 'mp3', 'ytmp3'],
+    description: 'Search and play any song from YouTube',
 
     async execute(sock, m, args) {
-        const query = args.join(' ');
-        if (!query) {
-            return await sock.sendMessage(m.from, { 
-                text: '❌ *Please provide a song name or YouTube link!*\n\n*Example:* `.play Jony Kamin`',
-                ...newsletterContext 
-            });
-        }
-
-        // --- 1. Send initial status message ---
-        const loadingMsg = await m.reply('🔍 *Searching for track...*');
-
         try {
-            // --- 2. Search YouTube ---
-            const searchResult = await yts(query);
-            const video = searchResult.videos[0];
-
-            if (!video) {
+            // Check if query is provided
+            const text = args.join(' ');
+            if (!text) {
                 return await sock.sendMessage(m.from, {
-                    text: '❌ *No video found for your query.*',
+                    text: '⚠️ *Please provide a song name or YouTube link!*\n\n*Example:* `.play EMIN JONY Kamin`',
+                    ...newsletterContext
+                }, { quoted: m });
+            }
+
+            // 1. Send searching indicator
+            const loadingMsg = await sock.sendMessage(m.from, {
+                text: '🔍 *Searching for the song...*',
+                ...newsletterContext
+            }, { quoted: m });
+
+            let videoUrl = text;
+            let videoTitle = text;
+            let videoThumbnail = '';
+            let videoDuration = '';
+
+            // Check if user provided a search term instead of a direct link
+            if (!text.includes('youtube.com') && !text.includes('youtu.be')) {
+                const searchResults = await yts(text);
+                const videos = searchResults.videos;
+
+                if (!videos || videos.length === 0) {
+                    return await sock.sendMessage(m.from, {
+                        text: '❌ *No results found for your query!*',
+                        edit: loadingMsg.key,
+                        ...newsletterContext
+                    });
+                }
+
+                const topResult = videos[0];
+                videoUrl = topResult.url;
+                videoTitle = topResult.title;
+                videoThumbnail = topResult.thumbnail;
+                videoDuration = topResult.timestamp;
+            }
+
+            // 2. Update status to Downloading
+            await sock.sendMessage(m.from, {
+                text: `🎵 *Song Found!*\n\n📌 *Title:* ${videoTitle}\n⏱️ *Duration:* ${videoDuration || 'Unknown'}\n\n⏳ *Fetching audio from server...*`,
+                edit: loadingMsg.key,
+                ...newsletterContext
+            });
+
+            // 3. Call your JerryCoder API endpoint
+            const apiUrl = `https://jerrycoder.oggyapi.workers.dev/down/ytmp3?url=${encodeURIComponent(videoUrl)}`;
+            const { data } = await axios.get(apiUrl, {
+                headers: { 'User-Agent': 'POPKID-BOT' },
+                timeout: 30000 // 30 seconds timeout
+            });
+
+            if (!data || data.status !== 'success' || !data.url) {
+                return await sock.sendMessage(m.from, {
+                    text: '❌ *Failed to download audio. Please try another song.*',
                     edit: loadingMsg.key,
                     ...newsletterContext
                 });
             }
 
-            // --- 3. Update status: Fetching download URL ---
+            // 4. Update status: Uploading Audio
             await sock.sendMessage(m.from, {
-                text: `🎵 *Found:* ${video.title}\n⏳ *Fetching audio data...*`,
+                text: '🚀 *Sending audio file...*',
                 edit: loadingMsg.key,
                 ...newsletterContext
             });
 
-            // --- 4. Call API Endpoint ---
-            const apiUrl = `https://jerrycoder.oggyapi.workers.dev/down/ytmp3?url=${encodeURIComponent(video.url)}`;
-            const response = await axios.get(apiUrl);
-            const data = response.data;
-
-            if (!data || data.status !== 'success' || !data.url) {
-                throw new Error('Failed to fetch valid download link from API.');
-            }
-
-            // --- 5. Format Info Message ---
-            const caption = 
-`🎶 *POPKID XMD MUSIC PLAYER*
-
-📌 *Title* : ${data.title || video.title}
-⏱️ *Duration* : ${video.timestamp || 'N/A'}
-🎚️ *Quality* : ${data.quality || '128k'}
-👤 *Channel* : ${video.author ? video.author.name : 'Unknown'}
-🔗 *URL* : ${video.url}
-
-*Choose output option below:*
-1️⃣ Reply *1* for **Audio** (Standard MP3)
-2️⃣ Reply *2* for **Voice Note** (PTT Audio)
-3️⃣ Reply *3* for **Document File** (.mp3 file)`;
-
-            // --- 6. Send Video Thumbnail with Details & Options ---
-            await sock.sendMessage(m.from, {
-                image: { url: video.thumbnail },
-                caption: caption,
-                ...newsletterContext
-            });
-
-            // Clean up the initial loading message
-            try {
-                await sock.sendMessage(m.from, { delete: loadingMsg.key });
-            } catch (e) {
-                // Ignore if deletion fails
-            }
-
-            // --- 7. Auto-Send Standard Audio Default ---
-            // Sends the audio directly to ensure seamless playback without requiring strict reply handlers
+            // 5. Send Audio File
             await sock.sendMessage(m.from, {
                 audio: { url: data.url },
                 mimetype: 'audio/mp4',
-                fileName: `${data.title}.mp3`,
-                ...newsletterContext
+                fileName: `${data.title || videoTitle}.mp3`,
+                contextInfo: {
+                    externalAdReply: {
+                        title: data.title || videoTitle,
+                        body: 'POPKID XMD AUDIO PLAYER',
+                        mediaType: 1,
+                        thumbnailUrl: videoThumbnail || 'https://i.imgur.com/2A48MvW.jpeg',
+                        sourceUrl: videoUrl,
+                        renderLargerThumbnail: true
+                    },
+                    ...newsletterContext.contextInfo
+                }
             }, { quoted: m });
 
         } catch (err) {
             console.error('Play command error:', err);
             await sock.sendMessage(m.from, {
-                text: '❌ *An error occurred while processing your request. Please try again later.*',
-                edit: loadingMsg.key,
+                text: `❌ *An error occurred:* ${err.message || 'Unable to process audio request.'}`,
                 ...newsletterContext
-            }).catch(async () => {
-                await sock.sendMessage(m.from, { 
-                    text: '❌ *Failed to download track.*',
-                    ...newsletterContext 
-                });
-            });
+            }, { quoted: m });
         }
     }
 };
