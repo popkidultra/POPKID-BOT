@@ -3,31 +3,52 @@ const fs = require('fs');
 const path = require('path');
 const AdmZip = require('adm-zip');
 
-const newsletterContext = {
-    contextInfo: {
-        forwardingScore: 999,
-        isForwarded: true,
-        forwardedNewsletterMessageInfo: {
-            newsletterJid: '120363426778975572@newsletter',
-            newsletterName: 'POPKID XMD',
-            serverMessageId: 1
-        }
-    }
-};
+// ---- CONFIGURE THESE FOR YOUR BOT ----
+const REPO_OWNER_AND_NAME = 'popkidultra/POPKID-BOT';
+const BRANCH = 'main';
+const BOT_NAME = 'POPKID-BOT'; // used only in messages
+// ---------------------------------------
 
-// Helper function to sync updated files recursively
+// Where we persist the last-installed commit hash so it survives restarts
+// (relying on a plain `global.commitHash` loses the value every time the process exits)
+const HASH_FILE = path.join(__dirname, '..', '.commit-hash.json');
+
+function getCommitHash() {
+    try {
+        if (fs.existsSync(HASH_FILE)) {
+            const data = JSON.parse(fs.readFileSync(HASH_FILE, 'utf8'));
+            return data.hash || '';
+        }
+    } catch (e) {
+        console.error('Failed to read commit hash file:', e);
+    }
+    return '';
+}
+
+function setCommitHash(hash) {
+    try {
+        fs.writeFileSync(HASH_FILE, JSON.stringify({ hash }, null, 2));
+        global.commitHash = hash; // keep in-memory copy too, in case other code reads it
+    } catch (e) {
+        console.error('Failed to write commit hash file:', e);
+    }
+}
+
+// Recursively copy files from the freshly downloaded repo over the current bot files,
+// skipping anything in excludeList so we never clobber local config/session/data.
 function copyFolderSync(from, to, exclude = []) {
     if (!fs.existsSync(to)) fs.mkdirSync(to, { recursive: true });
-    const element = fs.readdirSync(from);
+    const items = fs.readdirSync(from);
 
-    for (const item of element) {
+    for (const item of items) {
         const srcPath = path.join(from, item);
         const destPath = path.join(to, item);
-
         const relativePath = path.relative(from, srcPath);
-        if (exclude.some(ex => relativePath === ex || relativePath.startsWith(ex + path.sep))) {
-            continue;
-        }
+
+        const isExcluded = exclude.some(
+            (ex) => relativePath === ex || relativePath.startsWith(ex + path.sep)
+        );
+        if (isExcluded) continue;
 
         const stat = fs.lstatSync(srcPath);
         if (stat.isDirectory()) {
@@ -42,119 +63,111 @@ module.exports = {
     name: 'update',
     category: 'Owner',
     aliases: ['updatenow', 'updt', 'sync'],
-    description: 'Update POPKID-BOT to the latest version from GitHub',
+    description: `Update ${BOT_NAME} to the latest version from GitHub`,
 
-    async execute(sock, m, conText = {}) {
-        // Safe check for owner status across various bot structures
-        const isOwner = conText.isOwner || conText.isSuperUser || m.isOwner || m.key?.fromMe;
-
-        if (!isOwner) {
-            return await sock.sendMessage(m.from, { 
-                text: '❌ *This command is restricted to the Bot Owner!*', 
-                ...newsletterContext 
-            }, { quoted: m });
-        }
+    async execute(sock, m, args) {
+        // --- Optional: restrict to bot owner only ---
+        // if (!m.isOwner) {
+        //     return sock.sendMessage(m.from, { text: '❌ Owner Only Command!' }, { quoted: m });
+        // }
 
         let loadingMsg;
         try {
-            loadingMsg = await sock.sendMessage(m.from, { 
-                text: '🔍 *Checking for updates...*', 
-                ...newsletterContext 
-            }, { quoted: m });
+            loadingMsg = await sock.sendMessage(
+                m.from,
+                { text: '🔍 *Checking for updates...*' },
+                { quoted: m }
+            );
         } catch (e) {
-            console.error('Failed to send initial message:', e);
+            console.error('Failed to send loading message:', e);
         }
 
-        const repoOwnerAndName = 'popkidultra/POPKID-BOT';
-        const branch = 'main';
-
-        const zipPath = path.join(__dirname, '..', 'popkid-bot-main.zip');
-        const extractPath = path.join(__dirname, '..', 'latest');
+        const editOrSend = async (text) => {
+            if (loadingMsg && loadingMsg.key) {
+                return sock.sendMessage(m.from, { text, edit: loadingMsg.key });
+            }
+            return sock.sendMessage(m.from, { text }, { quoted: m });
+        };
 
         try {
             // --- 1. Check GitHub for the latest commit ---
             const { data: commitData } = await axios.get(
-                `https://api.github.com/repos/${repoOwnerAndName}/commits/${branch}`,
-                { headers: { 'User-Agent': 'POPKID-BOT' } }
+                `https://api.github.com/repos/${REPO_OWNER_AND_NAME}/commits/${BRANCH}`,
+                { timeout: 15000 }
             );
             const latestCommitHash = commitData.sha;
+            const currentHash = getCommitHash();
 
-            const currentHash = global.commitHash || '';
             if (currentHash && latestCommitHash === currentHash) {
-                return await sock.sendMessage(m.from, {
-                    text: '✅ *POPKID-BOT is already on the latest version!*',
-                    edit: loadingMsg?.key,
-                    ...newsletterContext
-                });
+                return editOrSend(`✅ *${BOT_NAME} is already on the latest version!*`);
             }
 
             const authorName = commitData.commit.author.name;
             const commitDate = new Date(commitData.commit.author.date).toLocaleString();
             const commitMessage = commitData.commit.message;
 
-            // --- 2. Update status: Downloading files ---
-            await sock.sendMessage(m.from, {
-                text: `🔄 *Updating POPKID-BOT...*\n\n📌 *Commit Details:*\n👤 *Author:* ${authorName}\n📅 *Date:* ${commitDate}\n💬 *Message:* ${commitMessage}\n\n⏳ *Downloading source zip...*`,
-                edit: loadingMsg?.key,
-                ...newsletterContext
-            });
+            await editOrSend(
+                `🔄 *Updating ${BOT_NAME}...*\n\n` +
+                `📌 *Commit Details:*\n` +
+                `👤 *Author:* ${authorName}\n` +
+                `📅 *Date:* ${commitDate}\n` +
+                `💬 *Message:* ${commitMessage}\n\n` +
+                `⏳ *Downloading source zip...*`
+            );
 
-            // --- 3. Fetch and extract repo archive ---
+            // --- 2. Download and extract the repo archive ---
+            const zipPath = path.join(__dirname, '..', 'update-download.zip');
             const { data: zipData } = await axios.get(
-                `https://github.com/${repoOwnerAndName}/archive/refs/heads/${branch}.zip`,
-                { responseType: 'arraybuffer', headers: { 'User-Agent': 'POPKID-BOT' } }
+                `https://github.com/${REPO_OWNER_AND_NAME}/archive/refs/heads/${BRANCH}.zip`,
+                { responseType: 'arraybuffer', timeout: 60000 }
             );
             fs.writeFileSync(zipPath, zipData);
 
+            const extractPath = path.join(__dirname, '..', 'latest');
             const zip = new AdmZip(zipPath);
             zip.extractAllTo(extractPath, true);
 
-            const extractedFolders = fs.readdirSync(extractPath);
-            if (!extractedFolders.length) throw new Error("Extracted folder is empty.");
-
-            const sourcePath = path.join(extractPath, extractedFolders[0]);
+            // GitHub zips extract into "<repo-name>-<branch>"
+            const repoName = REPO_OWNER_AND_NAME.split('/')[1];
+            const sourcePath = path.join(extractPath, `${repoName}-${BRANCH}`);
             const destinationPath = path.join(__dirname, '..');
 
+            if (!fs.existsSync(sourcePath)) {
+                throw new Error(
+                    `Extracted folder not found at ${sourcePath}. Check REPO_OWNER_AND_NAME/BRANCH.`
+                );
+            }
+
+            // --- 3. Copy new files over old ones, protecting local-only files ---
             const excludeList = [
                 '.env',
                 'node_modules',
                 'session',
-                'config.js'
+                'config.js',
+                '.commit-hash.json',
+                'database',
             ];
-
-            // --- 4. Replace files & update commit hash ---
             copyFolderSync(sourcePath, destinationPath, excludeList);
-            global.commitHash = latestCommitHash;
+            setCommitHash(latestCommitHash);
 
-            // Cleanup
+            // --- 4. Cleanup ---
             if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
             if (fs.existsSync(extractPath)) fs.rmSync(extractPath, { recursive: true, force: true });
 
-            // --- 5. Notify completion & restart ---
-            await sock.sendMessage(m.from, {
-                text: '✅ *Update complete! POPKID-BOT is restarting process...*',
-                edit: loadingMsg?.key,
-                ...newsletterContext
-            });
+            // --- 5. Notify and restart ---
+            await editOrSend(`✅ *Update complete! ${BOT_NAME} is restarting...*`);
 
             setTimeout(() => {
                 process.exit(0);
             }, 2000);
-
         } catch (err) {
             console.error('Update command error:', err);
-
-            // Cleanup temporary directories if failed
-            if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
-            if (fs.existsSync(extractPath)) fs.rmSync(extractPath, { recursive: true, force: true });
-
-            const errMsg = `❌ *Update Failed:* ${err.message || 'Check terminal logs for details.'}`;
-            
-            if (loadingMsg?.key) {
-                await sock.sendMessage(m.from, { text: errMsg, edit: loadingMsg.key, ...newsletterContext });
-            } else {
-                await sock.sendMessage(m.from, { text: errMsg, ...newsletterContext }, { quoted: m });
+            const msg = `❌ *Update Failed:* ${err.message || 'Check logs for details.'}`;
+            try {
+                await editOrSend(msg);
+            } catch (err2) {
+                console.error('Also failed to send error message:', err2);
             }
         }
-    }
+    },
 };
