@@ -49,7 +49,7 @@ cmd({
 • .textpro cloud HELLO WORLD
 • .textpro pixel | GAMER
 
-ᴘᴏᴡᴇʀᴇᴅ ʙʏ xʟɪᴄᴏɴᴠ2`;
+powered by popkid`;
                 return await m.reply(stylesList);
             }
 
