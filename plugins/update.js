@@ -147,16 +147,96 @@ function fileHash(filePath) {
     return crypto.createHash('sha1').update(fs.readFileSync(filePath)).digest('hex');
 }
 
-// ── Restart (self-respawn — works regardless of host restart policy) ──────
-function restartBot() {
-    const child = spawn(process.argv[0], process.argv.slice(1), {
-        cwd: PROJECT_ROOT,
-        detached: true,
-        stdio: 'inherit',
-        env: process.env
+// ── Update lock ─────────────────────────────────────────────────────────
+// Prevents two "update" commands (or an accidental double-send) from
+// running the sync/restart logic at the same time and corrupting files.
+function isUpdateLocked() {
+    return global.__popkidUpdateInProgress === true;
+}
+function setUpdateLock(value) {
+    global.__popkidUpdateInProgress = value;
+}
+
+// ── Restart (self-respawn with a startup verification window) ─────────────
+// 1. Frees the HTTP port (index.js exposes it as global.__popkidServer)
+//    BEFORE spawning the replacement process. Without this, the old and
+//    new process briefly race for the same port and the new one can crash
+//    with EADDRINUSE — the single biggest cause of a bad restart.
+// 2. After spawning, it watches the new process for a few seconds. If it
+//    exits almost immediately (e.g. broken code was pushed upstream), the
+//    restart is treated as FAILED: the port is handed back to the still-
+//    running OLD process instead of blindly exiting, so a bad update never
+//    takes the bot fully offline. Resolves `true` on a verified restart
+//    (in which case this process exits and never returns) or `false` if
+//    the restart was aborted and the old process is still alive.
+function restartBot({ onFailure } = {}) {
+    return new Promise((resolve) => {
+        const finishFail = async (reason) => {
+            try {
+                if (global.__popkidServer && !global.__popkidServer.listening && global.__popkidPort) {
+                    global.__popkidServer.listen(global.__popkidPort);
+                }
+            } catch (_) {}
+            if (onFailure) {
+                try { await onFailure(reason); } catch (_) {}
+            }
+            resolve(false);
+        };
+
+        const doSpawn = () => {
+            let child;
+            try {
+                child = spawn(process.argv[0], process.argv.slice(1), {
+                    cwd: PROJECT_ROOT,
+                    detached: true,
+                    stdio: 'inherit', // shares real fds so logs survive after this process exits
+                    env: process.env
+                });
+            } catch (err) {
+                finishFail(`Failed to spawn new process: ${err.message}`);
+                return;
+            }
+
+            let settled = false;
+            const GRACE_MS = 6000; // long enough for require()/native module loads on slow hosts
+
+            const crashTimer = setTimeout(() => {
+                if (settled) return;
+                settled = true;
+                child.unref();
+                resolve(true);
+                process.exit(0);
+            }, GRACE_MS);
+
+            child.once('exit', (code, signal) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(crashTimer);
+                finishFail(
+                    `The new process exited almost immediately (code ${code}, signal ${signal || 'none'}) — ` +
+                    `most likely a syntax error or crash on startup. Check your hosting logs for the exact error.`
+                );
+            });
+
+            child.once('error', (err) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(crashTimer);
+                finishFail(`Failed to spawn new process: ${err.message}`);
+            });
+        };
+
+        try {
+            const server = global.__popkidServer;
+            if (server && server.listening) {
+                server.close(() => doSpawn());
+            } else {
+                doSpawn();
+            }
+        } catch (err) {
+            finishFail(`Restart error: ${err.message}`);
+        }
     });
-    child.unref();
-    setTimeout(() => process.exit(0), 800);
 }
 
 const { cmd } = require('../arslan');
@@ -173,6 +253,11 @@ cmd({
         if (!m.isOwner && !m.isDev) {
             return m.reply('❌ This command is restricted to the bot owner.');
         }
+
+        if (isUpdateLocked()) {
+            return m.reply('⏳ An update is already running — please wait for it to finish.');
+        }
+        setUpdateLock(true);
 
         const loadingMsg = await m.reply('🔍 *Checking for updates...*');
 
@@ -192,6 +277,7 @@ cmd({
             const localSha = getLocalCommit();
 
             if (localSha && localSha === latest.sha) {
+                setUpdateLock(false);
                 return editOrSend('✅ Your bot is already up to date!');
             }
 
@@ -237,6 +323,7 @@ cmd({
                         `⚠️ Files were updated, but dependency install failed:\n${err.message}\n\n` +
                         `Run \`npm install\` manually, then restart the bot.`
                     );
+                    setUpdateLock(false);
                     return;
                 }
             }
@@ -248,9 +335,27 @@ cmd({
             // 8. Save the new commit hash — only after a successful install
             saveLocalCommit(latest.sha);
 
-            // 9. Restart
-            await editOrSend('✅ *Update installed successfully!*\n🔄 Restarting bot...');
-            restartBot();
+            // 9. Restart — verified: if the new process crashes on startup,
+            // this call returns `false` and the OLD process (this one)
+            // keeps running instead of exiting.
+            await editOrSend('✅ *Update installed successfully!*\n🔄 Restarting bot (verifying startup)...');
+
+            const restarted = await restartBot({
+                onFailure: async (reason) => {
+                    console.error('❌ update.js: new process failed to start:', reason);
+                    await editOrSend(
+                        `⚠️ Files were updated, but the bot failed to restart cleanly:\n\n${reason}\n\n` +
+                        `The bot is still running on the previous version — nothing is broken. ` +
+                        `Fix the issue, push again, then send *update* once more.`
+                    );
+                }
+            });
+
+            // If restarted === true, process.exit() already ran inside
+            // restartBot() and this line is never reached.
+            if (restarted === false) {
+                setUpdateLock(false);
+            }
 
         } catch (err) {
             console.error('❌ update.js fatal error:', err);
@@ -258,5 +363,6 @@ cmd({
                 try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
             }
             await editOrSend(`❌ Update failed, nothing was changed:\n${err.message}`);
+            setUpdateLock(false);
         }
     });
