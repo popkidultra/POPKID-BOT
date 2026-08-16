@@ -10,10 +10,9 @@ cmd({
     filename: __filename
 }, async (sock, m, args) => {
     const start = Date.now();
-    const initialMsg = await m.reply('⚡ 𝗣𝗢𝗣𝗞𝗜𝗗 𝗕𝗢𝗧 _fetching system metrics..._');
+    const initialMsg = await m.reply('⚡ 𝗣𝗢𝗣𝗞𝗜𝗗 𝗕𝗢𝗧 _fetching..._');
     const pingLatency = Date.now() - start;
 
-    // Time conversion utility
     const formatTime = (seconds) => {
         const d = Math.floor(seconds / (3600 * 24));
         const h = Math.floor((seconds % (3600 * 24)) / 3600);
@@ -28,32 +27,32 @@ cmd({
         return parts.join(' ') || '0s';
     };
 
-    // System Metrics
     const botUptime = formatTime(process.uptime());
     const hostUptime = formatTime(os.uptime());
 
-    // RAM Metrics
-    const totalMem = (os.totalmem() / (1024 ** 3)).toFixed(2);
-    const freeMem = (os.freemem() / (1024 ** 3)).toFixed(2);
-    const usedMem = (totalMem - freeMem).toFixed(2);
-    const ramUsagePercent = ((usedMem / totalMem) * 100).toFixed(1);
+    const totalMem = (os.totalmem() / (1024 ** 3)).toFixed(1);
+    const freeMem = (os.freemem() / (1024 ** 3)).toFixed(1);
+    const usedMem = (totalMem - freeMem).toFixed(1);
+    const ramUsagePercent = ((usedMem / totalMem) * 100).toFixed(0);
 
-    // CPU Metrics
-    const cpuModel = os.cpus()[0]?.model || 'Generic Processor';
-    const loadAvg = os.loadavg()[0].toFixed(2);
+    // Clean CPU name so it fits inside the narrow box
+    let cpuModel = os.cpus()[0]?.model || 'CPU';
+    cpuModel = cpuModel.replace(/\(R\)|\(TM\)|Intel|AMD|CPU|v\d+/gi, '').replace(/@.*/, '').trim();
+
+    const loadAvg = os.loadavg()[0].toFixed(1);
 
     const statusText = `
-╔═════ 👑 𝗣𝗢𝗣𝗞𝗜𝗗 𝗕𝗢𝗧 𝗦𝗧𝗔𝗧𝗨𝗦 ═════╗
-║ ⏱️ 𝗕𝗼𝘁 𝗨𝗽𝘁𝗶𝗺𝗲: ${botUptime}
-║ 🖥️ 𝗛𝗼𝘀𝘁 𝗨𝗽𝘁𝗶𝗺𝗲: ${hostUptime}
-║ 🏓 𝗥𝗲𝘀𝗽𝗼𝗻𝘀𝗲: ${pingLatency}ms
-╠═════════════════════════════════╣
-║ 📊 𝗥𝗔𝗠 𝗨𝘀𝗮𝗴𝗲: ${usedMem} GB / ${totalMem} GB (${ramUsagePercent}%)
-║ ⚡ 𝗖𝗣𝗨 𝗠𝗼𝗱𝗲𝗹: ${cpuModel}
-║ ⚙️ 𝗖𝗣𝗨 𝗟𝗼𝗮𝗱: ${loadAvg}%
-║ 💻 𝗢𝗦: ${os.platform()} (${os.arch()})
-╚═════════════════════════════════╝
-> 𝗣𝗼𝘄𝗲𝗿𝗲𝗱 𝗯𝘆 𝗣𝗼𝗽𝗸𝗶𝗱 𝗕𝗼𝘁
+╔═ 👑 𝗣𝗢𝗣𝗞𝗜𝗗 𝗕𝗢𝗧 ═╗
+║ ⏱️ 𝗨𝗽: ${botUptime}
+║ 🖥️ 𝗛𝗼𝘀𝘁: ${hostUptime}
+║ 🏓 𝗣𝗶𝗻𝗴: ${pingLatency}ms
+╠═════════════════╣
+║ 📊 𝗥𝗔𝗠: ${usedMem}/${totalMem}GB (${ramUsagePercent}%)
+║ ⚡ 𝗖𝗣𝗨: ${cpuModel}
+║ ⚙️ 𝗟𝗼𝗮𝗱: ${loadAvg}%
+║ 💻 𝗢𝗦: ${os.platform()}
+╚═════════════════╝
+> 𝗣𝗼𝘄𝗲𝗿𝗲𝗱 𝗯𝘆 𝗣𝗼俱𝗶𝗱 𝗕𝗼𝘁
 `.trim();
 
     await sock.sendMessage(m.from, {
