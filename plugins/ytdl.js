@@ -52,57 +52,18 @@ cmd({
 
         const video = videos[0];
 
-        const promptText = `
+        const detailsCard = `
 ╔═ 🎵 𝗣𝗢𝗣𝗞𝗜𝗗 𝗠𝗨𝗦𝗜𝗖 ═╗
 ║ 🎶 𝗧𝗶𝘁𝗹𝗲: ${video.title}
 ║ 👤 𝗦𝗶𝗻𝗴𝗲𝗿: ${video.author.name}
 ║ ⏱️ 𝗗𝘂𝗿𝗮𝘁𝗶𝗼𝗻: ${video.timestamp}
 ║ 👁️ 𝗩𝗶𝗲𝘄𝘀: ${video.views ? video.views.toLocaleString() : 'N/A'}
 ║ 🔗 𝗨𝗿𝗹: ${video.url}
-╠═══════════════════╣
-║ 𝗥𝗲𝗽𝗹𝘆 𝘄𝗶𝘁𝗵 𝗮 𝗻𝘂𝗺𝗯𝗲𝗿:
-║
-║ 1️⃣ 𝗔𝘂𝗱𝗶𝗼 (.mp3)
-║ 2️⃣ 𝗗𝗼𝗰𝘂𝗺𝗲𝗻𝘁 / 𝗙𝗶𝗹𝗲
-║ 3️⃣ 𝗩𝗼𝗶𝗰𝗲 𝗡𝗼𝘁𝗲 (.ptt)
 ╚═══════════════════╝
-> ⏱️ *𝗥𝗲𝗽𝗹𝘆 𝘄𝗶𝘁𝗵 1, 2, 𝗼𝗿 3 𝘄𝗶𝘁𝗵𝗶𝗻 15 𝘀𝗲𝗰𝗼𝗻𝗱𝘀!*
+> ⏳ *𝗗𝗼𝘄𝗻𝗹𝗼𝗮𝗱𝗶𝗻𝗴 𝗮𝘂𝗱𝗶𝗼, 𝗽𝗹𝗲𝗮𝘀𝗲 𝘄𝗮𝗶𝘁...*
 `.trim();
 
-        await m.reply(promptText);
-
-        // Capture user choice safely
-        const userChoice = await new Promise((resolve) => {
-            let timer = setTimeout(() => {
-                sock.ev.off('messages.upsert', listener);
-                resolve('1'); // Default to standard audio if user takes too long
-            }, 15000);
-
-            const listener = async (update) => {
-                try {
-                    const msg = update.messages[0];
-                    if (!msg || !msg.message) return;
-
-                    const sender = msg.key.participant || msg.key.remoteJid;
-                    const expectedSender = m.key.participant || m.key.remoteJid;
-
-                    if (msg.key.remoteJid === m.from && sender === expectedSender) {
-                        const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').trim();
-                        if (['1', '2', '3'].includes(text)) {
-                            clearTimeout(timer);
-                            sock.ev.off('messages.upsert', listener);
-                            resolve(text);
-                        }
-                    }
-                } catch {
-                    // ignore malformed messages
-                }
-            };
-
-            sock.ev.on('messages.upsert', listener);
-        });
-
-        await m.reply('⏳ *𝗗𝗼𝘄𝗻𝗹𝗼𝗮𝗱𝗶𝗻𝗴 𝘆𝗼𝘂𝗿 𝘀𝗼𝗻𝗴...*');
+        await m.reply(detailsCard);
 
         const songData = await downloadWithRetry(video.url);
 
@@ -111,43 +72,23 @@ cmd({
             const img = await axios.get(songData.thumbnail, { responseType: 'arraybuffer', timeout: 15000 });
             thumbnailBuffer = Buffer.from(img.data);
         } catch {
-            // thumbnail fallback
+            // no thumbnail available
         }
 
-        // Option 2: Send as File / Document
-        if (userChoice === '2') {
-            await sock.sendMessage(m.from, {
-                document: { url: songData.downloadUrl },
-                mimetype: 'audio/mpeg',
-                fileName: `${songData.title}.mp3`,
-                caption: `🎵 *${songData.title}*`
-            }, { quoted: m });
-
-        // Option 3: Send as Voice Note (PTT)
-        } else if (userChoice === '3') {
-            await sock.sendMessage(m.from, {
-                audio: { url: songData.downloadUrl },
-                mimetype: 'audio/mp4',
-                ptt: true
-            }, { quoted: m });
-
-        // Option 1: Send as playable Audio with card player
-        } else {
-            await sock.sendMessage(m.from, {
-                audio: { url: songData.downloadUrl },
-                mimetype: 'audio/mpeg',
-                fileName: `${songData.title}.mp3`,
-                contextInfo: {
-                    externalAdReply: {
-                        title: songData.title,
-                        body: `${video.author.name} • ${video.timestamp}`,
-                        thumbnail: thumbnailBuffer,
-                        mediaType: 2,
-                        sourceUrl: video.url
-                    }
+        await sock.sendMessage(m.from, {
+            audio: { url: songData.downloadUrl },
+            mimetype: 'audio/mpeg',
+            fileName: `${songData.title}.mp3`,
+            contextInfo: {
+                externalAdReply: {
+                    title: songData.title,
+                    body: `${video.author.name} • ${video.timestamp}`,
+                    thumbnail: thumbnailBuffer,
+                    mediaType: 2,
+                    sourceUrl: video.url
                 }
-            }, { quoted: m });
-        }
+            }
+        }, { quoted: m });
 
     } catch (err) {
         console.error('Play error:', err.message);
