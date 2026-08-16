@@ -164,7 +164,7 @@ async function serializeMessage(sock, msg) {
                 },
                 'buffer',
                 {},
-                sock
+                { logger: console, reuploadRequest: sock.updateMediaMessage }
             )
         }
     }
