@@ -1,45 +1,112 @@
 const { cmd } = require('../arslan');
+const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 
 cmd({
-    pattern: "dlstatus",
-    name: 'dlstatus',
-    category: 'Tools',
-    aliases: ['save', 'statusdl'],
-    description: 'Download a quoted Status update',
+    pattern: "save",
+    name: 'save',
+    category: 'Admin',
+    aliases: ['savefile', 'download'],
+    description: 'Save media from quoted message (Owner only)',
     filename: __filename
 }, async (sock, m, args) => {
-    if (!global.owners.includes(m.sender)) {
-        return;
-    }
-
-    if (!m.quoted || !m.quoted.isStatus) {
-        return m.reply('Please reply to a Status update and type .dlstatus');
-    }
-
-    try {
-        if (m.quoted.type === 'conversation' || m.quoted.type === 'extendedTextMessage') {
-            return m.reply(`📝 *Status Text:*\n\n${m.quoted.body}`);
+        const normalize = jid => jid?.split(':')[0];
+        const sender = normalize(m.sender);
+        const botId = normalize(sock.user.id);
+        const owners = (global.owners || []).map(normalize);
+        
+        const isOwner = owners.includes(sender) || sender === botId;
+        
+        if (!isOwner) {
+            return await sock.sendMessage(m.from, {
+                text: 'This command can only be used by the bot owner!'
+            });
         }
-
-        if (!m.quoted.isMedia) {
-            return m.reply('That status has no downloadable content.');
+        
+        if (!m.quoted) {
+            return m.reply(`SAVE MEDIA COMMAND\n\nUsage: .save (reply to a media message)\n\nYou can save:\nImages\nVideos\nAudio\nDocuments\nView once media`);
         }
-
-        const buffer = await m.quoted.download();
-        const mediaData = m.quoted.message[m.quoted.type];
-        const caption = mediaData?.caption || '';
-
-        if (m.quoted.type === 'imageMessage') {
-            await sock.sendMessage(m.from, { image: buffer, caption }, { quoted: m });
-        } else if (m.quoted.type === 'videoMessage') {
-            await sock.sendMessage(m.from, { video: buffer, caption, mimetype: m.quoted.mimetype }, { quoted: m });
-        } else if (m.quoted.type === 'audioMessage') {
-            await sock.sendMessage(m.from, { audio: buffer, mimetype: m.quoted.mimetype, ptt: mediaData?.ptt || false }, { quoted: m });
-        } else {
-            return m.reply('Unsupported status media type.');
+        
+        try {
+            let msg = m.quoted.message;
+            
+            while (true) {
+                if (msg?.groupStatusMessageV2) {
+                    msg = msg.groupStatusMessageV2.message;
+                } else if (msg?.ephemeralMessage) {
+                    msg = msg.ephemeralMessage.message;
+                } else if (msg?.viewOnceMessage) {
+                    msg = msg.viewOnceMessage.message;
+                } else if (msg?.message) {
+                    msg = msg.message;
+                } else {
+                    break;
+                }
+            }
+            
+            const mediaTypes = ['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage', 'stickerMessage'];
+            let mediaType = null;
+            
+            for (const type of mediaTypes) {
+                if (msg[type]) {
+                    mediaType = type;
+                    break;
+                }
+            }
+            
+            if (!mediaType) {
+                return m.reply('No media found in the quoted message');
+            }
+            
+            await m.reply(`Downloading media...`);
+            
+            const buffer = await downloadMediaMessage(
+                { message: msg },
+                'buffer',
+                {},
+                { logger: console, reuploadRequest: sock.updateMediaMessage }
+            );
+            
+            const mediaData = msg[mediaType];
+            const mimetype = mediaData.mimetype || '';
+            const caption = mediaData.caption || `Saved on ${new Date().toLocaleString()}`;
+            
+            if (mediaType === 'imageMessage') {
+                await sock.sendMessage(m.sender, {
+                    image: buffer,
+                    caption: `Image saved\n\n${caption}`
+                });
+            } 
+            else if (mediaType === 'videoMessage') {
+                await sock.sendMessage(m.sender, {
+                    video: buffer,
+                    caption: `Video saved\n\n${caption}`,
+                    mimetype: mimetype
+                });
+            }
+            else if (mediaType === 'audioMessage') {
+                await sock.sendMessage(m.sender, {
+                    audio: buffer,
+                    mimetype: mimetype,
+                    ptt: mediaData.ptt || false
+                });
+            }
+            else if (mediaType === 'documentMessage') {
+                await sock.sendMessage(m.sender, {
+                    document: buffer,
+                    mimetype: mimetype,
+                    fileName: mediaData.fileName || 'document'
+                });
+            }
+            else if (mediaType === 'stickerMessage') {
+                await sock.sendMessage(m.sender, {
+                    sticker: buffer
+                });
+            }
+            
+            await m.reply(`Media saved successfully!\nCheck your private chat`);
+            
+        } catch (err) {
+            console.error('save command error:', err);
+            await m.reply(`Failed to save media\n\n${err.message}`);
         }
-    } catch (err) {
-        console.error('dlstatus error:', err.message);
-        m.reply('❌ Failed to download status media.');
-    }
-});
+    });
