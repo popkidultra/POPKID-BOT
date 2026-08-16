@@ -1,6 +1,16 @@
 const axios = require('axios');
 const { cmd } = require('../arslan');
 
+// Helper function to convert standard text to Mathematical Bold Font
+const toBoldFont = (str) => {
+    const normal = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    const bold   = "𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝗼𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵";
+    return str.split('').map(char => {
+        const index = normal.indexOf(char);
+        return index !== -1 ? bold[index] : char;
+    }).join('');
+};
+
 cmd({
     pattern: "menu",
     name: 'menu',
@@ -61,27 +71,28 @@ cmd({
         ...Object.keys(grouped).filter(c => !CATEGORY_ORDER.includes(c))
     ];
 
-    // Ultra-Compact Double Box Header
+    // Header Box with Bold Fonts
     const headerBox = `
-╔═ 👑 *POPKID* ═╗
-║ 👤 Owner: ${botOwner}
-║ 🙋 User: ${user}
-║ 🚀 Cmds: ${totalPlugins}
-║ ⏱️ Up: ${uptimeStr}
-║ 📅 Date: ${date}
-║ 📊 RAM: ${ramStr}
-║ 🔧 Pref: ${prefix}
+╔═ 👑 𝗣𝗢𝗣𝗞𝗜𝗗 ═╗
+║ 👤 𝗢𝘄𝗻𝗲𝗿: ${botOwner}
+║ 🙋 𝗨𝘀𝗲𝗿: ${user}
+║ 🚀 𝗖𝗺𝗱𝘀: ${totalPlugins}
+║ ⏱️ 𝗨𝗽: ${uptimeStr}
+║ 📅 𝗗𝗮𝘁𝗲: ${date}
+║ 📊 𝗥𝗔𝗠: ${ramStr}
+║ 🔧 𝗣𝗿𝗲𝗳: ${prefix}
 ╚══════════════╝
 `.trim();
 
-    // Ultra-Compact Double Box Categories
+    // Category Boxes with Bold Category Names
     const commandSections = allCategories.map(category => {
         const icon = CATEGORY_ICONS[category] || '📂';
+        const boldCategoryName = toBoldFont(category.toUpperCase());
         const lines = grouped[category].map(l => `║ ❯ ${l}`).join('\n');
-        return `╔═ ${icon} *${category.toUpperCase()}* ═╗\n${lines}\n╚══════════════╝`;
+        return `╔═ ${icon} 𝗣𝗢𝗣𝗞𝗜𝗗 ${boldCategoryName} ═╗\n${lines}\n╚══════════════╝`;
     }).join('\n\n');
 
-    const menuText = `${headerBox}\n\n${commandSections}\n\n> Powered by Popkid Bot`;
+    const menuText = `${headerBox}\n\n${commandSections}\n\n> 𝗣𝗼𝘄𝗲𝗿𝗲𝗱 𝗯𝘆 𝗣𝗼𝗽𝗸𝗶𝗱 𝗕𝗼𝘁`;
 
     try {    
         if (!global.menuImage) throw new Error('global.menuImage is not set');
