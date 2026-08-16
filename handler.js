@@ -132,6 +132,13 @@ async function serializeMessage(sock, msg) {
         const qMsg = ctxInfo.quotedMessage
         const qType = Object.keys(qMsg || {})[0] || ''
 
+        // ctxInfo.remoteJid is 'status@broadcast' when the quoted message is
+        // a status reply, and the chat jid (or undefined) for a normal quote.
+        // Baileys still needs the *chat's* jid on the key for downloading,
+        // so keep remoteJid: from there, but surface the real value + an
+        // isStatus flag separately for plugins that need to tell them apart.
+        const quotedRemoteJid = ctxInfo.remoteJid || from
+
         quoted = {
             key: {
                 remoteJid: from,
@@ -144,6 +151,8 @@ async function serializeMessage(sock, msg) {
             isMedia: ['imageMessage', 'videoMessage', 'documentMessage', 'audioMessage', 'stickerMessage'].includes(qType),
             mediaType: qType ? qType.replace('Message', '').toLowerCase() : '',
             mimetype: qMsg?.[qType]?.mimetype || null,
+            remoteJid: quotedRemoteJid,
+            isStatus: quotedRemoteJid === 'status@broadcast',
             download: async () => await downloadMediaMessage(
                 {
                     key: {
