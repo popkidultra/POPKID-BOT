@@ -38,21 +38,32 @@ cmd({
         const query = args.join(' ').trim();
 
         if (!query) {
-            return m.reply('*Which song do you want to play?*\nUsage: .play <song name>');
+            return m.reply('❌ *𝗣𝗹𝗲𝗮𝘀𝗲 𝗽𝗿𝗼𝘃𝗶𝗱𝗲 𝗮 𝘀𝗼𝗻𝗴 𝗻𝗮𝗺𝗲!*\n*𝗨𝘀𝗮𝗴𝗲:* .play <song name>');
         }
 
         try {
-            await m.reply('🔍 *Searching...*');
+            await m.reply('⚡ 𝗣𝗢𝗣𝗞𝗜𝗗 𝗕𝗢𝗧 _Searching for your song..._');
 
             const { videos } = await yts(query);
 
             if (!videos?.length) {
-                return m.reply('❌ *No results found!*');
+                return m.reply('❌ *𝗡𝗼 𝗿𝗲𝘀𝘂𝗹𝘁𝘀 𝗳𝗼𝘂𝗻𝗱!*');
             }
 
             const video = videos[0];
 
-            await m.reply(`✅ *Found:* ${video.title}\n⏱️ ${video.timestamp}\n👤 ${video.author.name}\n\n⏳ *Downloading... (this may take up to 30s)*`);
+            const detailsCard = `
+╔═ 🎵 𝗣𝗢𝗣𝗞𝗜𝗗 𝗠𝗨𝗦𝗜𝗖 ═╗
+║ 🎶 𝗧𝗶𝘁𝗹𝗲: ${video.title}
+║ 👤 𝗦𝗶𝗻𝗴𝗲𝗿: ${video.author.name}
+║ ⏱️ 𝗗𝘂𝗿𝗮𝘁𝗶𝗼𝗻: ${video.timestamp}
+║ 👁️ 𝗩𝗶𝗲𝘄𝘀: ${video.views ? video.views.toLocaleString() : 'N/A'}
+║ 🔗 𝗨𝗿𝗹: ${video.url}
+╚═══════════════════╝
+> ⏳ *𝗗𝗼𝘄𝗻𝗹𝗼𝗮𝗱𝗶𝗻𝗴 𝗮𝘂𝗱𝗶𝗼, 𝗽𝗹𝗲𝗮𝘀𝗲 𝘄𝗮𝗶𝘁...*
+`.trim();
+
+            await m.reply(detailsCard);
 
             const songData = await downloadWithRetry(video.url);
 
@@ -85,6 +96,6 @@ cmd({
                 err.response?.status === 408 ? 'Download timed out. Try again in a moment.' :
                 err.response?.status === 429 ? 'Rate limited. Wait a minute.' :
                 err.message;
-            await m.reply(`❌ *Failed:* ${reason}`);
+            await m.reply(`❌ *𝗙𝗮𝗶𝗹𝗲𝗱:* ${reason}`);
         }
     });
