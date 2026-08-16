@@ -15,7 +15,7 @@ cmd({
     const date = now.toLocaleDateString('en-GB', { 
         day: 'numeric', 
         month: 'short', 
-        year: 'numeric',
+        year: '2-digit',
         timeZone: 'Africa/Accra'
     });
     
@@ -28,7 +28,7 @@ cmd({
     const us = Math.floor(uptimeSec % 60);
     const uptimeStr = `${uh}h ${um}m ${us}s`;
 
-    const ramStr = `${(process.memoryUsage().rss / 1024 / 1024).toFixed(1)}MB`;
+    const ramStr = `${(process.memoryUsage().rss / 1024 / 1024).toFixed(0)}MB`;
 
     const CATEGORY_ORDER = ['General', 'Downloaders', 'Tools', 'AI', 'Fun', 'Group', 'Status', 'Channel', 'Admin'];
     const CATEGORY_ICONS = {
@@ -61,24 +61,24 @@ cmd({
         ...Object.keys(grouped).filter(c => !CATEGORY_ORDER.includes(c))
     ];
 
-    // Perfectly Aligned Main Header Box
+    // Ultra-Compact Double Box Header
     const headerBox = `
-╔════ 👑 POPKID BOT ════╗
+╔═ 👑 *POPKID* ═╗
 ║ 👤 Owner: ${botOwner}
 ║ 🙋 User: ${user}
-║ 🚀 Plugins: ${totalPlugins}
-║ ⏱️ Uptime: ${uptimeStr}
+║ 🚀 Cmds: ${totalPlugins}
+║ ⏱️ Up: ${uptimeStr}
 ║ 📅 Date: ${date}
 ║ 📊 RAM: ${ramStr}
-║ 🔧 Prefix: ${prefix}
-╚═══════════════════════╝
+║ 🔧 Pref: ${prefix}
+╚══════════════╝
 `.trim();
 
-    // Perfectly Aligned Category Boxes
+    // Ultra-Compact Double Box Categories
     const commandSections = allCategories.map(category => {
         const icon = CATEGORY_ICONS[category] || '📂';
         const lines = grouped[category].map(l => `║ ❯ ${l}`).join('\n');
-        return `╔════ ${icon} POPKID ${category.toUpperCase()} ════╗\n${lines}\n╚═══════════════════════════╝`;
+        return `╔═ ${icon} *${category.toUpperCase()}* ═╗\n${lines}\n╚══════════════╝`;
     }).join('\n\n');
 
     const menuText = `${headerBox}\n\n${commandSections}\n\n> Powered by Popkid Bot`;
