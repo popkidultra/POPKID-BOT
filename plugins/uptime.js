@@ -5,12 +5,12 @@ cmd({
     pattern: "uptime",
     name: 'uptime',
     category: 'General',
-    aliases: ['runtime', 'up', 'status', 'system'],
-    description: 'Check advanced bot metrics and server uptime',
+    aliases: ['runtime', 'up', 'status', 'popkid'],
+    description: 'Check Popkid Bot runtime and server metrics',
     filename: __filename
 }, async (sock, m, args) => {
     const start = Date.now();
-    const initialMsg = await m.reply('⚡ _Fetching system metrics..._');
+    const initialMsg = await m.reply('⚡ 𝗣𝗢𝗣𝗞𝗜𝗗 𝗕𝗢𝗧 _fetching system metrics..._');
     const pingLatency = Date.now() - start;
 
     // Time conversion utility
@@ -40,19 +40,20 @@ cmd({
 
     // CPU Metrics
     const cpuModel = os.cpus()[0]?.model || 'Generic Processor';
-    const loadAvg = os.loadavg()[0].toFixed(2); // 1-minute load average
+    const loadAvg = os.loadavg()[0].toFixed(2);
 
     const statusText = `
-╭─── System Dashboard ───
-│ ⏱️ *Bot Uptime:* ${botUptime}
-│ 🖥️ *Host Uptime:* ${hostUptime}
-│ 🏓 *Response:* ${pingLatency}ms
-├───────────────────────
-│ 📊 *RAM Usage:* ${usedMem} GB / ${totalMem} GB (${ramUsagePercent}%)
-│ ⚡ *CPU Model:* ${cpuModel}
-│ ⚙️ *CPU Load:* ${loadAvg}%
-│ 💻 *OS:* ${os.platform()} (${os.arch()})
-╰───────────────────────
+╔═════ 👑 𝗣𝗢𝗣𝗞𝗜𝗗 𝗕𝗢𝗧 𝗦𝗧𝗔𝗧𝗨𝗦 ═════╗
+║ ⏱️ 𝗕𝗼𝘁 𝗨𝗽𝘁𝗶𝗺𝗲: ${botUptime}
+║ 🖥️ 𝗛𝗼𝘀𝘁 𝗨𝗽𝘁𝗶𝗺𝗲: ${hostUptime}
+║ 🏓 𝗥𝗲𝘀𝗽𝗼𝗻𝘀𝗲: ${pingLatency}ms
+╠═════════════════════════════════╣
+║ 📊 𝗥𝗔𝗠 𝗨𝘀𝗮𝗴𝗲: ${usedMem} GB / ${totalMem} GB (${ramUsagePercent}%)
+║ ⚡ 𝗖𝗣𝗨 𝗠𝗼𝗱𝗲𝗹: ${cpuModel}
+║ ⚙️ 𝗖𝗣𝗨 𝗟𝗼𝗮𝗱: ${loadAvg}%
+║ 💻 𝗢𝗦: ${os.platform()} (${os.arch()})
+╚═════════════════════════════════╝
+> 𝗣𝗼𝘄𝗲𝗿𝗲𝗱 𝗯𝘆 𝗣𝗼𝗽𝗸𝗶𝗱 𝗕𝗼𝘁
 `.trim();
 
     await sock.sendMessage(m.from, {
