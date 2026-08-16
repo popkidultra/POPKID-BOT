@@ -66,47 +66,40 @@ cmd({
 ║ 2️⃣ 𝗗𝗼𝗰𝘂𝗺𝗲𝗻𝘁 / 𝗙𝗶𝗹𝗲
 ║ 3️⃣ 𝗩𝗼𝗶𝗰𝗲 𝗡𝗼𝘁𝗲 (.ptt)
 ╚═══════════════════╝
-> ⏱️ *𝗥𝗲𝗽𝗹𝘆 𝘄𝗶𝘁𝗵 1, 2, 𝗼𝗿 3 𝘄𝗶𝘁𝗵𝗶𝗻 30 𝘀𝗲𝗰𝗼𝗻𝗱𝘀!*
+> ⏱️ *𝗥𝗲𝗽𝗹𝘆 𝘄𝗶𝘁𝗵 1, 2, 𝗼𝗿 3 𝘄𝗶𝘁𝗵𝗶𝗻 15 𝘀𝗲𝗰𝗼𝗻𝗱𝘀!*
 `.trim();
 
-        const sentMsg = await m.reply(promptText);
+        await m.reply(promptText);
 
-        // Active listener for response
+        // Capture user choice safely
         const userChoice = await new Promise((resolve) => {
-            let timeout;
+            let timer = setTimeout(() => {
+                sock.ev.off('messages.upsert', listener);
+                resolve('1'); // Default to standard audio if user takes too long
+            }, 15000);
 
-            const handler = async (chatUpdate) => {
+            const listener = async (update) => {
                 try {
-                    const msg = chatUpdate.messages[0];
+                    const msg = update.messages[0];
                     if (!msg || !msg.message) return;
 
-                    const fromJid = msg.key.remoteJid;
-                    const senderJid = msg.key.participant || msg.key.remoteJid;
+                    const sender = msg.key.participant || msg.key.remoteJid;
                     const expectedSender = m.key.participant || m.key.remoteJid;
 
-                    if (fromJid !== m.from || senderJid !== expectedSender) return;
-
-                    const body = msg.message.conversation || 
-                                 msg.message.extendedTextMessage?.text || '';
-                    
-                    const text = body.trim();
-
-                    if (['1', '2', '3'].includes(text)) {
-                        clearTimeout(timeout);
-                        sock.ev.off('messages.upsert', handler);
-                        resolve(text);
+                    if (msg.key.remoteJid === m.from && sender === expectedSender) {
+                        const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').trim();
+                        if (['1', '2', '3'].includes(text)) {
+                            clearTimeout(timer);
+                            sock.ev.off('messages.upsert', listener);
+                            resolve(text);
+                        }
                     }
-                } catch (e) {
-                    // ignore format errors
+                } catch {
+                    // ignore malformed messages
                 }
             };
 
-            sock.ev.on('messages.upsert', handler);
-
-            timeout = setTimeout(() => {
-                sock.ev.off('messages.upsert', handler);
-                resolve('1'); // Default to Audio if time expires
-            }, 30000);
+            sock.ev.on('messages.upsert', listener);
         });
 
         await m.reply('⏳ *𝗗𝗼𝘄𝗻𝗹𝗼𝗮𝗱𝗶𝗻𝗴 𝘆𝗼𝘂𝗿 𝘀𝗼𝗻𝗴...*');
@@ -118,10 +111,10 @@ cmd({
             const img = await axios.get(songData.thumbnail, { responseType: 'arraybuffer', timeout: 15000 });
             thumbnailBuffer = Buffer.from(img.data);
         } catch {
-            // thumbnail unavailable
+            // thumbnail fallback
         }
 
-        // Send file based on selected choice
+        // Option 2: Send as File / Document
         if (userChoice === '2') {
             await sock.sendMessage(m.from, {
                 document: { url: songData.downloadUrl },
@@ -129,12 +122,16 @@ cmd({
                 fileName: `${songData.title}.mp3`,
                 caption: `🎵 *${songData.title}*`
             }, { quoted: m });
+
+        // Option 3: Send as Voice Note (PTT)
         } else if (userChoice === '3') {
             await sock.sendMessage(m.from, {
                 audio: { url: songData.downloadUrl },
                 mimetype: 'audio/mp4',
                 ptt: true
             }, { quoted: m });
+
+        // Option 1: Send as playable Audio with card player
         } else {
             await sock.sendMessage(m.from, {
                 audio: { url: songData.downloadUrl },
