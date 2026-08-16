@@ -1,5 +1,4 @@
 const axios = require('axios');
-
 const { cmd } = require('../arslan');
 
 cmd({
@@ -11,26 +10,16 @@ cmd({
     filename: __filename
 }, async (sock, m) => {    
     const prefix = global.BOT_PREFIX || '.';    
-    
     const now = new Date();
     
     const date = now.toLocaleDateString('en-GB', { 
         day: 'numeric', 
-        month: 'long', 
+        month: 'short', 
         year: 'numeric',
         timeZone: 'Africa/Accra'
     });
     
-    const time = now.toLocaleTimeString('en-US', { 
-        hour: '2-digit', 
-        minute: '2-digit', 
-        second: '2-digit',
-        hour12: true,
-        timeZone: 'Africa/Accra'
-    });
-    
-    const botOwner = global.ownerName  || 'POPKID';
-    
+    const botOwner = global.ownerName || 'POPKID';
     const user = m.pushName || m.sender?.split('@')[0] || 'User';
 
     const uptimeSec = process.uptime();
@@ -39,16 +28,8 @@ cmd({
     const us = Math.floor(uptimeSec % 60);
     const uptimeStr = `${uh}h ${um}m ${us}s`;
 
-    const ramStr = `${(process.memoryUsage().rss / 1024 / 1024).toFixed(2)}MB`;
+    const ramStr = `${(process.memoryUsage().rss / 1024 / 1024).toFixed(1)}MB`;
 
-    // Box-drawing pieces + accent emoji (swap CAP to change the corner look everywhere at once)
-    const CAP = '💠';
-    const TOP = `╭──═════════════${CAP}`;
-    const MID = `╠──═════════════${CAP}`;
-    const BOT = `╰──═════════════${CAP}`;
-
-    // Auto-build the command list from whatever plugins are actually loaded,
-    // so new plugins show up here automatically without editing this file.
     const CATEGORY_ORDER = ['General', 'Downloaders', 'Tools', 'AI', 'Fun', 'Group', 'Status', 'Channel', 'Admin'];
     const CATEGORY_ICONS = {
         General: '📜', Downloaders: '💼', Tools: '🛠️', AI: '🧠', Fun: '🎉',
@@ -66,7 +47,7 @@ cmd({
         for (const plugin of global.plugins.values()) {
             if (!plugin || !plugin.name) continue;
             if (plugin.hidden) continue;
-            if (seen.has(plugin.name)) continue; // plugin objects are indexed by name + every alias
+            if (seen.has(plugin.name)) continue;
             seen.add(plugin.name);
 
             const category = plugin.category || 'General';
@@ -80,31 +61,27 @@ cmd({
         ...Object.keys(grouped).filter(c => !CATEGORY_ORDER.includes(c))
     ];
 
+    // Compact Double-Lined Header Box
+    const headerBox = `
+╔═ 👑 𝗣𝗢𝗣𝗞𝗜𝗗 𝗕𝗢𝗧 ═╗
+║ 👤 𝗢𝘄𝗻𝗲𝗿: ${botOwner}
+║ 🙋 𝗨𝘀𝗲𝗿: ${user}
+║ 🚀 𝗣𝗹𝘂𝗴𝗶𝗻𝘀: ${totalPlugins}
+║ ⏱️ 𝗨𝗽𝘁𝗶𝗺𝗲: ${uptimeStr}
+║ 📆 𝗗𝗮𝘁𝗲: ${date}
+║ 📊 𝗥𝗔𝗠: ${ramStr}
+║ 🔧 𝗣𝗿𝗲𝗳𝗶𝘩: ${prefix}
+╚═════════════════╝
+`.trim();
+
+    // Compact Double-Lined Category Sections
     const commandSections = allCategories.map(category => {
         const icon = CATEGORY_ICONS[category] || '📂';
-        const lines = grouped[category].map(l => `║ ◇ ${l}`).join('\n');
-        return `${TOP}\n║ ${icon} *${category.toUpperCase()}*\n${MID}\n║\n${lines}\n║\n${BOT}`;
+        const lines = grouped[category].map(l => `║ ❯ ${l}`).join('\n');
+        return `╔═ ${icon} 𝗣𝗢𝗣𝗞𝗜𝗗 ${category.toUpperCase()} ═╗\n${lines}\n╚═════════════════════╝`;
     }).join('\n\n');
 
-    const menuText = `
-${TOP}
-║ ✨ *POPKID BOT* ✨
-${MID}
-║
-║ 👤 *OWNER:* ${botOwner}
-║ 🙋 *USER:* ${user}
-║ 🚀 *PLUGINS:* ${totalPlugins}
-║ ⏳ *UPTIME:* ${uptimeStr}
-║ 📆 *DATE:* ${date}
-║ 📊 *RAM:* ${ramStr}
-║ 🔧 *PREFIX:* ${prefix}
-║
-${BOT}
-
-${commandSections}
-
-© popkid
-`.trim();
+    const menuText = `${headerBox}\n\n${commandSections}\n\n> 𝗣𝗼𝘄𝗲𝗿𝗲𝗱 𝗯𝘆 𝗣𝗼𝗽𝗸𝗶𝗱 𝗕𝗼𝘁`;
 
     try {    
         if (!global.menuImage) throw new Error('global.menuImage is not set');
