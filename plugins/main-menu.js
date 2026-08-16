@@ -19,7 +19,7 @@ cmd({
         timeZone: 'Africa/Accra'
     });
     
-    const botOwner = global.ownerName || 'POPKID';
+    const botOwner = global.ownerName || 'popkid';
     const user = m.pushName || m.sender?.split('@')[0] || 'User';
 
     const uptimeSec = process.uptime();
@@ -61,27 +61,27 @@ cmd({
         ...Object.keys(grouped).filter(c => !CATEGORY_ORDER.includes(c))
     ];
 
-    // Compact Double-Lined Header Box
+    // Perfectly Aligned Main Header Box
     const headerBox = `
-╔═ 👑 𝗣𝗢𝗣𝗞𝗜𝗗 𝗕𝗢𝗧 ═╗
-║ 👤 𝗢𝘄𝗻𝗲𝗿: ${botOwner}
-║ 🙋 𝗨𝘀𝗲𝗿: ${user}
-║ 🚀 𝗣𝗹𝘂𝗴𝗶𝗻𝘀: ${totalPlugins}
-║ ⏱️ 𝗨𝗽𝘁𝗶𝗺𝗲: ${uptimeStr}
-║ 📆 𝗗𝗮𝘁𝗲: ${date}
-║ 📊 𝗥𝗔𝗠: ${ramStr}
-║ 🔧 𝗣𝗿𝗲𝗳𝗶𝘩: ${prefix}
-╚═════════════════╝
+╔════ 👑 POPKID BOT ════╗
+║ 👤 Owner: ${botOwner}
+║ 🙋 User: ${user}
+║ 🚀 Plugins: ${totalPlugins}
+║ ⏱️ Uptime: ${uptimeStr}
+║ 📅 Date: ${date}
+║ 📊 RAM: ${ramStr}
+║ 🔧 Prefix: ${prefix}
+╚═══════════════════════╝
 `.trim();
 
-    // Compact Double-Lined Category Sections
+    // Perfectly Aligned Category Boxes
     const commandSections = allCategories.map(category => {
         const icon = CATEGORY_ICONS[category] || '📂';
         const lines = grouped[category].map(l => `║ ❯ ${l}`).join('\n');
-        return `╔═ ${icon} 𝗣𝗢𝗣𝗞𝗜𝗗 ${category.toUpperCase()} ═╗\n${lines}\n╚═════════════════════╝`;
+        return `╔════ ${icon} POPKID ${category.toUpperCase()} ════╗\n${lines}\n╚═══════════════════════════╝`;
     }).join('\n\n');
 
-    const menuText = `${headerBox}\n\n${commandSections}\n\n> 𝗣𝗼𝘄𝗲𝗿𝗲𝗱 𝗯𝘆 𝗣𝗼𝗽𝗸𝗶𝗱 𝗕𝗼𝘁`;
+    const menuText = `${headerBox}\n\n${commandSections}\n\n> Powered by Popkid Bot`;
 
     try {    
         if (!global.menuImage) throw new Error('global.menuImage is not set');
