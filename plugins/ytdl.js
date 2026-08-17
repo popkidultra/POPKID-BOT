@@ -69,6 +69,16 @@ cmd({
                 }
             });
             buffer = Buffer.from(audioRes.data);
+
+            // Sanity-check we actually got audio bytes back, not an HTML
+            // error page or empty body from the signed link.
+            const contentType = audioRes.headers['content-type'] || '';
+            console.log(`play: downloaded ${buffer.length} bytes, content-type: ${contentType}`);
+
+            if (buffer.length < 10000) {
+                console.error('play: buffer suspiciously small, first 200 bytes:', buffer.toString('utf8', 0, 200));
+                return m.reply('❌ *The download link returned an invalid file. Try again.*');
+            }
         } catch (fetchErr) {
             console.error('play: audio buffer fetch failed:', fetchErr);
             return m.reply('❌ *Failed to download the audio file. Try again.*');
@@ -76,13 +86,14 @@ cmd({
 
         // Step 3: send the buffer, not a URL.
         try {
+            console.log(`play: sending audio, m.from=${m.from}, buffer size=${buffer.length}`);
             await sock.sendMessage(m.from, {
                 audio: buffer,
                 mimetype: 'audio/mpeg',
                 fileName: `${title}.mp3`
             }, { quoted: m });
         } catch (sendErr) {
-            console.error('play: sendMessage failed:', sendErr);
+            console.error('play: sendMessage failed. Name:', sendErr?.name, 'Message:', sendErr?.message, 'Stack:', sendErr?.stack);
             return m.reply('❌ *Downloaded the audio but failed to send it. Try again.*');
         }
 
