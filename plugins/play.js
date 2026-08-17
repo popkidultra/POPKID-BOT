@@ -15,7 +15,7 @@ cmd({
 
         if (!query) {
             await m.react('❌').catch(() => {});
-            return m.reply(`╭─❏ 「 PLAY」\n│ You forgot to type something, genius.\n│ Give me a song name OR a YouTube link.\n│ Example: .play harlem shake\n│ Or: .play https://youtu.be/dQw4w9WgXcQ\n╰───────────────\n> ©𝐏𝐨𝐰𝐞𝐫𝐞𝐝 𝐁𝐲 𝐱𝐡_𝐜𝐥𝐢𝐧𝐭𝐨𝐧`);
+            return m.reply(`╭─❏ 「 PLAY」\n│ You forgot to type something, genius.\n│ Give me a song name OR a YouTube link.\n│ Example: .play harlem shake\n│ Or: .play https://youtu.be/dQw4w9WgXcQ\n╰───────────────\n> ❤️‍🩹𝐏𝐎𝐖𝐄𝐑𝐄𝐃 𝐁𝐘 𝐏𝐎𝐏𝐊𝐈𝐃`);
         }
 
         const isYoutubeLink = /(?:https?:\/\/)?(?:youtu\.be\/|(?:www\.|m\.)?youtube\.com\/(?:watch\?v=|v\/|embed\/|shorts\/|playlist\?list=)?[a-zA-Z0-9_-]{11})/gi.test(query);
@@ -77,7 +77,7 @@ cmd({
             document: { url: audioUrl },
             mimetype: "audio/mpeg",
             fileName: `${filename.replace(/[<>:"/\\|?*]/g, '_')}.mp3`,
-            caption: `╭─❏ 「 PLAY」\n│ ${filename}\n╰───────────────\n> ©𝐏𝐨𝐰𝐞𝐫𝐞𝐝 𝐁𝐲 𝐱𝐡_𝐜𝐥𝐢𝐧𝐭𝐨𝐧`
+            caption: `╭─❏ 「 PLAY」\n│ ${filename}\n╰───────────────\n> ©𝐏𝐎𝐖𝐄𝐑𝐄𝐃 𝐁𝐘 𝐏𝐎𝐏𝐊𝐈𝐃`
         });
 
     } catch (error) {
