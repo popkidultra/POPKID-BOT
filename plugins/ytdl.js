@@ -32,26 +32,39 @@ cmd({
 
         await m.reply(`✅ *Found:* ${video.title}\n⏱️ ${video.timestamp}\n👤 ${video.author.name}\n\n⏳ *Downloading...*`);
 
-        const { data } = await axios.get(DL_API, {
-            params: { url: video.url },
-            timeout: 60000
-        });
+        let data;
+        try {
+            const res = await axios.get(DL_API, {
+                params: { url: video.url },
+                timeout: 60000
+            });
+            data = res.data;
+        } catch (apiErr) {
+            console.error('play: API request failed:', apiErr);
+            return m.reply('❌ *Failed to reach the download API. Please try again later.*');
+        }
 
         if (!data?.status || !data?.data?.dl) {
+            console.error('play: unexpected API response shape:', JSON.stringify(data));
             return m.reply('❌ *Failed to fetch audio. Please try again later.*');
         }
 
         const title = data.data.title || video.title;
         const downloadURL = data.data.dl;
 
-        await sock.sendMessage(m.from, {
-            audio: { url: downloadURL },
-            mimetype: 'audio/mpeg',
-            fileName: `${title}.mp3`
-        }, { quoted: m });
+        try {
+            await sock.sendMessage(m.from, {
+                audio: { url: downloadURL },
+                mimetype: 'audio/mpeg',
+                fileName: `${title}.mp3`
+            }, { quoted: m });
+        } catch (sendErr) {
+            console.error('play: sendMessage failed:', sendErr);
+            return m.reply('❌ *Downloaded the audio but failed to send it. Try again.*');
+        }
 
     } catch (err) {
-        console.error('play error:', err.message);
+        console.error('play error:', err);
         const reason =
             err.response?.status === 408 ? 'Download timed out. Try again in a moment.' :
             err.response?.status === 429 ? 'Rate limited. Wait a minute.' :
