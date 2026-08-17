@@ -3,7 +3,7 @@ const axios = require('axios');
 
 const { cmd } = require('../arslan');
 
-const DL_API = 'https://eliteprotech-apis.zone.id/ytdown';
+const DL_API = 'https://api--shadowcorexyz.replit.app/download/ytmp3';
 
 cmd({
     pattern: "play",
@@ -33,29 +33,21 @@ cmd({
         await m.reply(`✅ *Found:* ${video.title}\n⏱️ ${video.timestamp}\n👤 ${video.author.name}\n\n⏳ *Downloading...*`);
 
         const { data } = await axios.get(DL_API, {
-            params: { url: video.url, format: 'mp3' },
+            params: { url: video.url },
             timeout: 60000
         });
 
-        if (!data?.success || !data?.downloadURL) {
+        if (!data?.status || !data?.data?.dl) {
             return m.reply('❌ *Failed to fetch audio. Please try again later.*');
         }
 
-        const title = data.title || video.title;
+        const title = data.data.title || video.title;
+        const downloadURL = data.data.dl;
 
         await sock.sendMessage(m.from, {
-            audio: { url: data.downloadURL },
+            audio: { url: downloadURL },
             mimetype: 'audio/mpeg',
-            fileName: `${title}.mp3`,
-            contextInfo: {
-                externalAdReply: {
-                    title: title,
-                    body: `${video.author.name} • ${video.timestamp}`,
-                    thumbnail: undefined,
-                    mediaType: 2,
-                    sourceUrl: video.url
-                }
-            }
+            fileName: `${title}.mp3`
         }, { quoted: m });
 
     } catch (err) {
