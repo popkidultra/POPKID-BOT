@@ -31,7 +31,7 @@ cmd({
     pattern: "sv",
     name: 'sv',
     category: 'Tools',
-    aliases: ['svm', 'savemedia'],
+    aliases: ['save', 'savemedia'],
     description: 'Save the quoted message to your own DM',
     filename: __filename
 }, async (sock, m, args) => {
