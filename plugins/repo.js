@@ -1,3 +1,6 @@
+const axios = require('axios');
+const fs = require('fs');
+
 const { cmd } = require('../arslan');
 
 cmd({
@@ -54,10 +57,10 @@ cmd({
         }
 
         const info =
-`╔═ 👑 𝗣𝗢𝗣𝗞𝗜𝗗 𝗕𝗢𝗧 ═╗
+`╔═ 👑 𝗣𝗢𝗣𝗞𝗜𝗗 𝗕𝗢𝗧 ═❍
 ║ 📝 𝗗𝗲𝘀𝗰: ${stats.description}
 ║ 🔗 𝗥𝗲𝗽𝗼: ${REPO_URL}
-╠═════════════════╣
+╠═════════════════❍
 ║ ⭐ 𝗦𝘁𝗮𝗿𝘀: ${stats.stars}
 ║ 🍴 𝗙𝗼𝗿𝗸𝘀: ${stats.forks}
 ║ 👁️ 𝗪𝗮𝘁𝗰𝗵𝗲𝗿𝘀: ${stats.watchers}
@@ -66,8 +69,29 @@ cmd({
 ║ 📄 𝗟𝗶𝗰𝗲𝗻𝘀𝗲: ${stats.license}
 ║ 🌿 𝗕𝗿𝗮𝗻𝗰𝗵: ${stats.branch}
 ║ 🕒 𝗨𝗽𝗱𝗮𝘁𝗲𝗱: ${stats.updated}
-╚═════════════════╝
-> 𝗣𝗼𝘄𝗲𝗿𝗲𝗱 𝗯𝘆 𝗣𝗢𝗣𝗞𝗜𝗗𝗕𝗢𝗧`;
+╚═════════════════❍
+> ❍ 𝗣𝗢𝗣𝗞𝗜𝗗𝗕𝗢𝗧 ❍`;
 
-        await sock.sendMessage(m.from, { text: info });
+        try {
+            if (!global.menuImage) throw new Error('global.menuImage is not set');
+
+            // global.menuImage can be either a remote URL (default) or a
+            // local file path saved by the .setmenuimage command.
+            const imageBuffer = /^https?:\/\//i.test(global.menuImage)
+                ? (await axios.get(global.menuImage, {
+                    responseType: 'arraybuffer',
+                    timeout: 8000
+                })).data
+                : fs.readFileSync(global.menuImage);
+
+            await m.reply(imageBuffer, { caption: info });
+
+        } catch (err) {
+            console.error('Repo image error, falling back to text:', err.message);
+            try {
+                await sock.sendMessage(m.from, { text: info });
+            } catch (err2) {
+                console.error('Repo text fallback error:', err2.message);
+            }
+        }
     });
