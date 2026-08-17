@@ -1,4 +1,5 @@
 const axios = require('axios');
+const fs = require('fs');
 
 const { cmd } = require('../arslan');
 
@@ -109,10 +110,14 @@ ${commandSections}
     try {    
         if (!global.menuImage) throw new Error('global.menuImage is not set');
 
-        const imageBuffer = (await axios.get(global.menuImage, {
-            responseType: 'arraybuffer',
-            timeout: 8000
-        })).data;    
+        // global.menuImage can now be either a remote URL (default) or a
+        // local file path saved by the .setmenuimg command.
+        const imageBuffer = /^https?:\/\//i.test(global.menuImage)
+            ? (await axios.get(global.menuImage, {
+                responseType: 'arraybuffer',
+                timeout: 8000
+            })).data
+            : fs.readFileSync(global.menuImage);
         
         await m.reply(imageBuffer, { 
             caption: menuText,
