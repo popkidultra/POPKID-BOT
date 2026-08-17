@@ -32,29 +32,52 @@ cmd({
 
         await m.reply(`✅ *Found:* ${video.title}\n⏱️ ${video.timestamp}\n👤 ${video.author.name}\n\n⏳ *Downloading...*`);
 
-        let data;
+        // Step 1: ask the API for a download link.
+        let downloadURL, title;
         try {
-            const res = await axios.get(DL_API, {
+            const { data } = await axios.get(DL_API, {
                 params: { url: video.url },
                 timeout: 60000
             });
-            data = res.data;
+
+            if (!data?.status || !data?.data?.dl) {
+                console.error('play: unexpected API response shape:', JSON.stringify(data));
+                return m.reply('❌ *Failed to fetch audio. Please try again later.*');
+            }
+
+            downloadURL = data.data.dl;
+            title = data.data.title || video.title;
         } catch (apiErr) {
             console.error('play: API request failed:', apiErr);
             return m.reply('❌ *Failed to reach the download API. Please try again later.*');
         }
 
-        if (!data?.status || !data?.data?.dl) {
-            console.error('play: unexpected API response shape:', JSON.stringify(data));
-            return m.reply('❌ *Failed to fetch audio. Please try again later.*');
+        // Step 2: fetch the actual audio bytes ourselves instead of handing
+        // Baileys the raw signed URL. Baileys internally probes a remote
+        // audio URL's headers before sending it, and these signed CDN
+        // links (cococo.epsiloncloud.org, sig=...) often return
+        // missing/odd headers that make that internal probe throw a vague
+        // "Cannot read properties of undefined" error. Downloading the
+        // buffer ourselves sidesteps that entirely.
+        let buffer;
+        try {
+            const audioRes = await axios.get(downloadURL, {
+                responseType: 'arraybuffer',
+                timeout: 60000,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+            });
+            buffer = Buffer.from(audioRes.data);
+        } catch (fetchErr) {
+            console.error('play: audio buffer fetch failed:', fetchErr);
+            return m.reply('❌ *Failed to download the audio file. Try again.*');
         }
 
-        const title = data.data.title || video.title;
-        const downloadURL = data.data.dl;
-
+        // Step 3: send the buffer, not a URL.
         try {
             await sock.sendMessage(m.from, {
-                audio: { url: downloadURL },
+                audio: buffer,
                 mimetype: 'audio/mpeg',
                 fileName: `${title}.mp3`
             }, { quoted: m });
@@ -64,11 +87,7 @@ cmd({
         }
 
     } catch (err) {
-        console.error('play error:', err);
-        const reason =
-            err.response?.status === 408 ? 'Download timed out. Try again in a moment.' :
-            err.response?.status === 429 ? 'Rate limited. Wait a minute.' :
-            err.message;
-        m.reply(`❌ *Failed:* ${reason}`);
+        console.error('play: unexpected error:', err);
+        m.reply(`❌ *Failed:* ${err.message || err}`);
     }
 });
