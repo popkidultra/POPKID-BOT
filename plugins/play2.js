@@ -155,14 +155,14 @@ cmd({
     pattern: "play2",
     name: 'play2',
     category: 'Downloaders',
-    aliases: ['ply', 'playy', 'pl'],
-    description: 'Search and play/download a song from YouTube',
+    aliases: ['ply2'],
+    description: 'Search and play/download a song from YouTube (alt source)',
     filename: __filename
 }, async (sock, m, args) => {
 
     const text = args.join(' ');
     const usedPrefix = m.prefix || '.';
-    const command = 'play';
+    const command = 'play2';
 
     if (!text)
         throw `Example:\n${usedPrefix + command} chase atlantic`;
