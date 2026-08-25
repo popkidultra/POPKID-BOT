@@ -152,10 +152,10 @@ async function createHighQualityThumbnail(sock, thumb) {
 // ─── Plugin wrapper (converted to arslan cmd() style) ──────────────
 
 cmd({
-    pattern: "play",
-    name: 'play',
-    category: 'downloader',
-    aliases: [],
+    pattern: "play2",
+    name: 'play2',
+    category: 'Downloaders',
+    aliases: ['ply', 'playy', 'pl'],
     description: 'Search and play/download a song from YouTube',
     filename: __filename
 }, async (sock, m, args) => {
