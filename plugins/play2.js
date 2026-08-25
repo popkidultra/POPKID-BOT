@@ -1,7 +1,5 @@
 const { createDecipheriv } = require('crypto');
 const yts = require('yt-search');
-const sharp = require('sharp');
-const { prepareWAMessageMedia } = require('@whiskeysockets/baileys');
 const { cmd } = require('../arslan');
 
 const METADATA_DECRYPTION_KEY = Buffer.from(
@@ -103,52 +101,6 @@ async function savetubeRetry(url, opts, retry = 3) {
   throw lastErr;
 }
 
-async function getThumb(url) {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('Failed to fetch thumbnail');
-
-    const raw = Buffer.from(await res.arrayBuffer());
-
-    return await sharp(raw)
-      .resize(1280, 720, {
-        fit: 'cover',
-        position: 'center'
-      })
-      .jpeg({
-        quality: 90
-      })
-      .toBuffer();
-  } catch (e) {
-    console.error('Thumb Error:', e);
-    return Buffer.alloc(0);
-  }
-}
-
-async function createHighQualityThumbnail(sock, thumb) {
-  try {
-    if (!thumb?.length) return null;
-
-    const { imageMessage } = await prepareWAMessageMedia(
-      {
-        image: thumb
-      },
-      {
-        upload: sock.waUploadToServer,
-        mediaTypeOverride: 'thumbnail-link'
-      }
-    );
-
-    imageMessage.width = 1280;
-    imageMessage.height = 720;
-
-    return imageMessage;
-  } catch (e) {
-    console.error('HQ Thumb Error:', e);
-    return null;
-  }
-}
-
 // ─── Plugin wrapper (converted to arslan cmd() style) ──────────────
 
 cmd({
@@ -187,9 +139,6 @@ cmd({
         throw 'Video not found';
 
     const ytUrl = vid.url || url;
-    const thumb = await getThumb(vid.thumbnail);
-    const highQualityThumbnail = await createHighQualityThumbnail(sock, thumb);
-
     const invisible = '\u200B'.repeat(400);
 
     const caption = `
@@ -210,29 +159,16 @@ cmd({
             text: `${ytUrl}${invisible}
 
 ${caption}`,
-
-            linkPreview: {
-                'matched-text': ytUrl,
-                matchedText: ytUrl,
-                canonicalUrl: ytUrl,
-                title: vid.title,
-                description: `🎧 ɪᴍᴍᴜ ᴍᴅ ᴠ𝟹 • ${vid.timestamp || 'Audio'}`,
-                previewType: 0,
-                jpegThumbnail: thumb,
-                highQualityThumbnail,
-                thumbnailUrl: vid.thumbnail,
-                linkPreviewMetadata: {
-                    linkMediaDuration: 0,
-                    socialMediaPostType: 4
+            contextInfo: {
+                externalAdReply: {
+                    title: vid.title,
+                    body: `🎧 ${vid.timestamp || 'Audio'}`,
+                    thumbnailUrl: vid.thumbnail,
+                    sourceUrl: ytUrl,
+                    mediaType: 1,
+                    renderLargerThumbnail: true
                 }
-            },
-
-            favicon: {
-                url: vid.thumbnail
             }
-        },
-        {
-            quoted: global.fmeta || m
         }
     );
 
@@ -251,9 +187,6 @@ ${caption}`,
                 mimetype: 'audio/mpeg',
                 fileName: `${audio.title}.mp3`,
                 ptt: false
-            },
-            {
-                quoted: global.fmeta || m
             }
         );
 
@@ -267,9 +200,6 @@ ${caption}`,
             m.from,
             {
                 text: '❌ Audio failed diambil, coba lagi nanti.'
-            },
-            {
-                quoted: global.fmeta || m
             }
         );
     }
