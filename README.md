@@ -2,7 +2,7 @@
 <p align="center"><b>A simple, fast and reliable WhatsApp bot.</b></p>
 
 <p align="center">
-  <img src="https://n.uguu.se/HwVMxyFu.jpg" alt="POPKID-BOT Banner" width="100%" />
+  <img src="https://files.catbox.moe/8segqd.jpg" alt="POPKID-BOT Banner" width="100%" />
 </p>
 
 <p align="center">
