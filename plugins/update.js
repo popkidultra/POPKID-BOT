@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-const { execSync, spawn } = require('child_process');
+const { execSync } = require('child_process');
 
 // ── GitHub configuration ──────────────────────────────────────────────────
 const repoOwner = 'popkidultra';
@@ -157,84 +157,58 @@ function setUpdateLock(value) {
     global.__popkidUpdateInProgress = value;
 }
 
-// ── Restart (self-respawn with a startup verification window) ─────────────
-// 1. Frees the HTTP port (index.js exposes it as global.__popkidServer)
-//    BEFORE spawning the replacement process. Without this, the old and
-//    new process briefly race for the same port and the new one can crash
-//    with EADDRINUSE — the single biggest cause of a bad restart.
-// 2. After spawning, it watches the new process for a few seconds. If it
-//    exits almost immediately (e.g. broken code was pushed upstream), the
-//    restart is treated as FAILED: the port is handed back to the still-
-//    running OLD process instead of blindly exiting, so a bad update never
-//    takes the bot fully offline. Resolves `true` on a verified restart
-//    (in which case this process exits and never returns) or `false` if
-//    the restart was aborted and the old process is still alive.
-function restartBot({ onFailure } = {}) {
+// ── Restart ────────────────────────────────────────────────────────────
+// IMPORTANT: most hosting panels (Pterodactyl and similar) run the bot as
+// the container's main (PID 1) process under a process supervisor that
+// watches that exact process and restarts it using your configured
+// "startup command" whenever it exits.
+//
+// The old approach here used to spawn() a detached child process and then
+// exit the parent. That works fine on a bare VPS with systemd/pm2, but
+// inside a panel's container it backfires: the moment the parent (PID 1)
+// exits, the container itself is torn down by the runtime, which kills
+// the freshly-spawned child right along with it. Net result: files get
+// updated, but the bot goes offline and stays offline until you manually
+// hit "restart" in the panel.
+//
+// The fix is to NOT try to relaunch ourselves. Just close the HTTP port
+// (if any) and exit cleanly — the panel's own supervisor sees the process
+// exit and restarts it using the startup command, which brings the bot
+// back up running the newly-updated code. This is simpler and it's what
+// panels are actually built to do.
+//
+// Make sure "Auto restart on stop/crash" (naming varies by panel) is
+// enabled, and that your startup command / exit-code handling treats a
+// clean `process.exit(0)` as something to restart on (some panels only
+// auto-restart on non-zero exit codes — if yours is one of those, change
+// the exit code below to 1).
+function restartBot() {
     return new Promise((resolve) => {
-        const finishFail = async (reason) => {
-            try {
-                if (global.__popkidServer && !global.__popkidServer.listening && global.__popkidPort) {
-                    global.__popkidServer.listen(global.__popkidPort);
-                }
-            } catch (_) {}
-            if (onFailure) {
-                try { await onFailure(reason); } catch (_) {}
-            }
-            resolve(false);
-        };
-
-        const doSpawn = () => {
-            let child;
-            try {
-                child = spawn(process.argv[0], process.argv.slice(1), {
-                    cwd: PROJECT_ROOT,
-                    detached: true,
-                    stdio: 'inherit', // shares real fds so logs survive after this process exits
-                    env: process.env
-                });
-            } catch (err) {
-                finishFail(`Failed to spawn new process: ${err.message}`);
-                return;
-            }
-
-            let settled = false;
-            const GRACE_MS = 6000; // long enough for require()/native module loads on slow hosts
-
-            const crashTimer = setTimeout(() => {
-                if (settled) return;
-                settled = true;
-                child.unref();
-                resolve(true);
-                process.exit(0);
-            }, GRACE_MS);
-
-            child.once('exit', (code, signal) => {
-                if (settled) return;
-                settled = true;
-                clearTimeout(crashTimer);
-                finishFail(
-                    `The new process exited almost immediately (code ${code}, signal ${signal || 'none'}) — ` +
-                    `most likely a syntax error or crash on startup. Check your hosting logs for the exact error.`
-                );
-            });
-
-            child.once('error', (err) => {
-                if (settled) return;
-                settled = true;
-                clearTimeout(crashTimer);
-                finishFail(`Failed to spawn new process: ${err.message}`);
-            });
+        const doExit = () => {
+            console.log('🔄 update: exiting so the panel restarts the process with the new code...');
+            // Small delay so the "update installed" message has time to send.
+            setTimeout(() => {
+                process.exit(0); // change to process.exit(1) if your panel only auto-restarts on failure
+            }, 500);
+            // We never actually resolve(true)/(false) meaningfully here since
+            // the process is ending, but resolve is called defensively in
+            // case exit is somehow prevented (e.g. an exit hook elsewhere).
+            resolve(true);
         };
 
         try {
             const server = global.__popkidServer;
             if (server && server.listening) {
-                server.close(() => doSpawn());
+                server.close(() => doExit());
+                // Safety net: don't hang forever waiting for close() if some
+                // socket refuses to release.
+                setTimeout(doExit, 3000);
             } else {
-                doSpawn();
+                doExit();
             }
         } catch (err) {
-            finishFail(`Restart error: ${err.message}`);
+            console.error('❌ update.js: error during restart, exiting anyway:', err.message);
+            doExit();
         }
     });
 }
@@ -335,27 +309,17 @@ cmd({
             // 8. Save the new commit hash — only after a successful install
             saveLocalCommit(latest.sha);
 
-            // 9. Restart — verified: if the new process crashes on startup,
-            // this call returns `false` and the OLD process (this one)
-            // keeps running instead of exiting.
-            await editOrSend('✅ *Update installed successfully!*\n🔄 Restarting bot (verifying startup)...');
+            // 9. Restart — hand control back to the panel's process
+            // supervisor by exiting cleanly. It relaunches the bot with the
+            // startup command, which now runs the newly-installed code.
+            await editOrSend(
+                '✅ *Update installed successfully!*\n🔄 Restarting bot (this may take a few seconds)...'
+            );
 
-            const restarted = await restartBot({
-                onFailure: async (reason) => {
-                    console.error('❌ update.js: new process failed to start:', reason);
-                    await editOrSend(
-                        `⚠️ Files were updated, but the bot failed to restart cleanly:\n\n${reason}\n\n` +
-                        `The bot is still running on the previous version — nothing is broken. ` +
-                        `Fix the issue, push again, then send *update* once more.`
-                    );
-                }
-            });
-
-            // If restarted === true, process.exit() already ran inside
-            // restartBot() and this line is never reached.
-            if (restarted === false) {
-                setUpdateLock(false);
-            }
+            await restartBot();
+            // process.exit() runs inside restartBot(); this line is not
+            // reached under normal operation.
+            setUpdateLock(false);
 
         } catch (err) {
             console.error('❌ update.js fatal error:', err);
