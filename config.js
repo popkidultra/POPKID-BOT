@@ -21,3 +21,7 @@ global.highlightlyKey = process.env.HIGHLIGHTLY_API_KEY || 'c9f43957-7720-4845-a
 global.channelTag = true;                          // set false to turn it off
 global.channelJid = '120363426692424154@newsletter';
 global.channelName = 'Popkid';
+
+// Fake "© Popkid Md" contact-card quote above every reply (set false to turn off)
+global.fakeQuote = true;
+global.botDisplayName = 'Popkid Md';
