@@ -15,3 +15,9 @@ global.statusReactDelayMs = 2000;    // pause after reacting before handling the
 global.presenceMode = 'none'; // 'none' | 'typing' | 'recording' | 'online'
 global.updateZipUrl = 'https://github.com/popkidultra/POPKID-BOT/archive/refs/heads/main.zip';
 global.antidelete = 'false';  // 'false' | 'inchat' | 'indm' — toggle at runtime with .antidelete
+global.highlightlyKey = process.env.HIGHLIGHTLY_API_KEY || 'c9f43957-7720-4845-a2c0-ee992f1c5244';
+
+// "View channel" tag on every bot reply (applied once in index.js, no per-command edits)
+global.channelTag = true;                          // set false to turn it off
+global.channelJid = '120363426692424154@newsletter';
+global.channelName = 'Popkid';
