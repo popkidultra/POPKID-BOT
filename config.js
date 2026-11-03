@@ -25,3 +25,6 @@ global.channelName = 'Popkid';
 // Fake "© Popkid Md" contact-card quote above every reply (set false to turn off)
 global.fakeQuote = true;
 global.botDisplayName = 'Popkid Md';
+
+// Image sent with the "POPKID BOT CONNECTED" message
+global.connectedImage = 'https://i.ibb.co/Fk5sQt5x/44b393028697de9d9f52e2d49a86d018.jpg';
